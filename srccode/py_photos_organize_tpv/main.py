@@ -1,5 +1,4 @@
 import os
-from sqlite3 import IntegrityError
 import sys
 import pathlib
 import time
@@ -14,6 +13,8 @@ import argparse
 import coloredlogs
 # Reference: https://www.geeksforgeeks.org/logging-in-python/
 import logging
+from PIL import Image
+import piexif
 
 # Basic References:
 # https://www.youtube.com/watch?v=--_K4G3HCcI
@@ -23,13 +24,15 @@ parser = argparse.ArgumentParser(description='Script options parser.')
 
 parser.add_argument('-o', '--files_orign', type=str, required=False, default='.\\resources\\input_files\\')
 parser.add_argument('-d', '--files_destination', type=str, required=False, default='.\\resources\\output_files\\')
-parser.add_argument('-f', '--folders', type=str, required=False, default='%Y_%m_%b')
+parser.add_argument('-f', '--folders', type=str, required=False, default='%Y_%m')
 parser.add_argument('-p', '--files_prefix', type=str, required=False, default='%Y_%m_%d_%Hh%Mm%Ss')
 parser.add_argument('-q', '--batch_quantity_images', type=int, required=False, default=0)
+parser.add_argument('-y', '--min_year_discart_date', type=int, required=False, default=1990)
+parser.add_argument('-g', '--generate_folder_sufix', type=bool, required=False, default=True)
 # min_width_escape_low_resolution
 # min_size_escape_low_resolution
-# min_year_discart_date
-# generate_folder_sufix : exif, screen, instante_message, low_resolution, file_system, name_date, others
+# 
+# generate_folder_sufix : exif, instante_message, screen, low_resolution, file_system, name_date, others
 # rename_file
 
 args = parser.parse_args()
@@ -37,12 +40,6 @@ args = parser.parse_args()
 # Define what image and video file extensions to search for:
 IMAGE_EXTENSIONS = ('.png', '.jpeg', '.jpg', '.gif')
 VIDEOS_EXTENSIONS = ('.mov', 'mp4')
-
-
-#----------------------------------------------------------------------------------------------#
-def get_image_reference_date(image_file):
-	image_reference_date = datetime.datetime.now();
-	return image_reference_date;
 
 #----------------------------------------------------------------------------------------------#
 def log_inicialization():
@@ -59,7 +56,7 @@ def log_inicialization():
 
 	# Reference: https://pypi.org/project/coloredlogs/
 	coloredlogs.install(
-		level='DEBUG', 
+		#level='DEBUG', 
 		logger=logger, 
 		milliseconds=True, 
 		fmt='%(asctime)s,%(msecs)03d %(levelname)s %(message)s' 
@@ -74,6 +71,8 @@ def main():
 	folders = args.folders
 	files_prefix = args.files_prefix
 	batch_quantity_images = args.batch_quantity_images
+	min_year_discart_date = args.min_year_discart_date
+	generate_folder_sufix = args.generate_folder_sufix
 
 	files_orign = 'D:\\dropbox\\fotos-tpv\\_organizar\\'
 	batch_quantity_images = 10
@@ -96,17 +95,76 @@ def main():
 	counter_quantity_images = 0
 	for path, subdirs, files in os.walk(files_orign):
 		for file_name in files:
-			image_file = pathlib.PurePath(path, file_name)
-			if file_name.endswith(IMAGE_EXTENSIONS):
+			#image_file = os.path.join(path, file_name)
+			image_file = str(pathlib.PurePath(path, file_name))
+			if (file_name.endswith(IMAGE_EXTENSIONS)):
 				counter_quantity_images = counter_quantity_images + 1
 				if ((batch_quantity_images == 0) or (counter_quantity_images <= batch_quantity_images)):
-					logger.debug(str(image_file))
-					#logger.debug(os.path.join(path, file_name))
-					get_image_reference_date(image_file)
+					logger.debug(image_file)
+
+					dir_image_year = '0000'
+					dir_image_month = '00'
+					dir_image_sufix = 'others'
+					exif_utilizado = ''
+
+					# Reading file name date information:
+
+					# Reading filesystem date information:
+
+					# Reading EXIF date information:
+
+					try:
+						image = Image.open(image_file)
+						exif_dict = piexif.load(image.info['exif'])
+						logger.info('EXIF loaded successfuly.')
+					except KeyError:
+						logger.info('No Exif data!')
+						exif_dict = {}
+						exif_dict["0th"] = {}
+						exif_dict["Exif"] = {}
+
+					exif_information = str(exif_dict["0th"][306])
+					logger.debug('EXIF[00306]: ' + str(exif_information[2:21]))
+					if (int(exif_information[2:6]) >= min_year_discart_date):
+						dir_image_year = str(exif_information[2:6])
+						dir_image_month = str(exif_information[7:9])
+						dir_image_sufix = 'exif'
+						exif_utilizado = '00306'
+						exif_index = 100*int(dir_image_year)+int(dir_image_month)
+
+					exif_information = image._getexif()[36868]
+					logger.debug('EXIF[36868]: ' + str(exif_information))
+					if (int(exif_information[0:4]) >= min_year_discart_date):
+						if ((exif_utilizado != '') and (exif_index < 100*int(exif_information[0:4])+int(exif_information[5:7]))):
+							dir_image_year = str(exif_information[0:4])
+							dir_image_month = str(exif_information[5:7])
+							dir_image_sufix = 'exif'
+							exif_utilizado = '36868'
+
+					exif_information = image._getexif()[36867]
+					logger.debug('EXIF[36867]: ' + str(exif_information))
+					if (int(exif_information[0:4]) >= min_year_discart_date):
+						if ((exif_utilizado != '') and (exif_index < 100*int(exif_information[0:4])+int(exif_information[5:7]))):
+							dir_image_year = str(exif_information[0:4])
+							dir_image_month = str(exif_information[5:7])
+							dir_image_sufix = 'exif'
+							exif_utilizado = '36867'
+
+					if (exif_utilizado != ''):
+						logger.debug(exif_utilizado + ' - ' + dir_image_year + ' - ' + dir_image_month)
+						date_dir_destination = datetime.date(int(dir_image_year), int(dir_image_month), 1)
+						dir_destination = datetime.datetime.strftime(date_dir_destination , folders)
+
+					if (generate_folder_sufix):
+						new_file_dir = files_destination + dir_destination + '-'  + dir_image_sufix + '\\'
+					else:
+						new_file_dir = files_destination + dir_destination + '\\'
+					logger.info('New file folder: ' +new_file_dir)
+
 				else:
-					logger.info('Batch limt: ' + str(batch_quantity_images) + ' - Ignoring file ' + str(image_file))
+					logger.debug('Batch limt: ' + str(batch_quantity_images) + ' - Ignoring file ' + str(image_file))
 			else:
-				logger.info('Extension - Ignoring file ' + str(image_file))
+				logger.debug('Extension - Ignoring file ' + str(image_file))
 
 	# TO_DO: 
 	# https://github.com/excellentsport/picOrganizer
