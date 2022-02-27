@@ -92,7 +92,7 @@ def main():
 	generate_folder_sufix = args.generate_folder_sufix
 	min_size_escape_low_resolution = args.min_size_escape_low_resolution
 
-	files_orign = 'D:\\dropbox\\fotos-tpv\\_organizar\\'
+	#files_orign = 'D:\\dropbox\\fotos-tpv\\_organizar\\'
 	#batch_quantity_images = 100
 
 	logger = log_inicialization()
@@ -150,7 +150,10 @@ def main():
 
 					if (image_file_creation_date != 0):
 						date_dir_destination  = datetime.datetime.fromtimestamp(image_file_creation_date)
-						new_file_name = date_dir_destination.strftime(files_prefix) + '-' + file_name[0:50]
+						if (len(file_name)>100):
+							new_file_name = date_dir_destination.strftime(files_prefix) + '-' + file_name[-100:]
+						else:
+							new_file_name = date_dir_destination.strftime(files_prefix) + '-' + file_name
 						dir_destination = date_dir_destination.strftime(folders)
 						logger.debug('Filesystem timestamp: ' + str(image_file_creation_date))
 						logger.debug('Filesystem date: ' + str(date_dir_destination))
@@ -215,11 +218,14 @@ def main():
 									date_dir_destination = datetime.date(int(dir_image_year), int(dir_image_month), int(dir_image_day))
 									#logger.info('azul - RegEx: ' + regex_match.group() + ', Year: '+ dir_image_year + ', Month: ' + dir_image_month + ', Day: ' + dir_image_day)
 					if ( dir_image_year != '0000'):
-						new_file_name = date_dir_destination.strftime(files_prefix) + '-' + file_name[0:50]
+						if (len(file_name)>100):
+							new_file_name = date_dir_destination.strftime(files_prefix) + '-' + file_name[-100:]
+						else:
+							new_file_name = date_dir_destination.strftime(files_prefix) + '-' + file_name
 						dir_destination = date_dir_destination.strftime(folders)
-						logger.debug('Filename date: ' + str(date_dir_destination))
+						logger.debug('File name date: ' + str(date_dir_destination))
 					else:
-						logger.debug('No date from filename!')
+						logger.debug('No date from file name!')
 
 					#----------------------------------------------------------------------#
 					# Reading EXIF date information:
@@ -284,16 +290,23 @@ def main():
 
 					if (exif_utilizado != ''):
 						dir_destination = date_dir_destination.strftime(folders)
-						new_file_name = date_dir_destination.strftime(files_prefix) + '-' + file_name[0:50]
-						logger.debug('Filename from EXIF ('+ exif_utilizado +'): ' + str(date_dir_destination))
+						if (len(file_name)>100):
+							new_file_name = date_dir_destination.strftime(files_prefix) + '-' + file_name[-100:]
+						else:
+							new_file_name = date_dir_destination.strftime(files_prefix) + '-' + file_name
+						logger.debug('File name from EXIF ('+ exif_utilizado +'): ' + str(date_dir_destination))
 					else:
 						logger.debug('No date from EXIF!')
 
 					#----------------------------------------------------------------------#
 					# Reading Geodata information:
 					# Reference: https://towardsdatascience.com/grabbing-geodata-from-your-photos-library-using-python-60eb0462e147
-					geodata = gpsphoto.getGPSData(image_file)
-					logger.debug('GeoData: ' + str(geodata))
+					#try:
+						#geodata = gpsphoto.getGPSData(image_file)
+						#logger.debug('GeoData: ' + str(geodata))
+					#except KeyError:
+						#logger.error('GeoData with erros!')
+
 
 					#----------------------------------------------------------------------#
 					# Generating folder sufix:
@@ -330,9 +343,32 @@ def main():
 					if not os.path.exists(new_file_dir):
 						os.makedirs(new_file_dir)
 
-					shutil.move(image_file, new_file_dir + new_file_name)
-					#os.rename(image_file, new_file_dir + file_name)
-					logger.info('Was moved.')
+					arquivo_movido = False
+
+					if (arquivo_movido == False):
+						try:
+							shutil.move(image_file, new_file_dir + new_file_name)
+							arquivo_movido = True
+							logger.info('Image was moved.')
+						except PermissionError:
+							logger.error('Error trying to move file.')
+
+					if (arquivo_movido == False):
+						try:
+							os.rename(image_file, new_file_dir + new_file_name)
+							arquivo_movido = True
+							logger.info('Image was renamed.')
+						except PermissionError:
+							logger.error('Error trying to rename file.')
+
+					if (arquivo_movido == False):
+						try:
+							os.link(image_file, new_file_dir + new_file_name)
+							os.remove(image_file)
+							arquivo_movido = True
+							logger.info('Image was copied and deleted.')
+						except PermissionError:
+							logger.error('Error trying to rename file.')
 
 				else:
 					logger.debug('Batch limt: ' + str(batch_quantity_images) + ' - Ignoring file ' + str(image_file))
