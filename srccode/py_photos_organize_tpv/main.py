@@ -15,6 +15,7 @@ import time
 # Reference: https://www.tutorialspoint.com/How-to-print-current-date-and-time-using-Python
 
 import shutil
+import shutils
 
 import coloredlogs
 # Reference: https://pypi.org/project/coloredlogs/
@@ -47,10 +48,7 @@ parser.add_argument('-q', '--batch_quantity_images', type=int, required=False, d
 parser.add_argument('-y', '--exif_min_year_discart_date', type=int, required=False, default=1990)
 parser.add_argument('-s', '--min_size_escape_low_resolution', type=int, required=False, default=200000)
 parser.add_argument('-g', '--generate_folder_sufix', type=bool, required=False, default=True)
-# min_width_escape_low_resolution
-# 
-# generate_folder_sufix : exif, instante_message, screen, low_resolution, file_system, name_date, others
-# rename_file
+parser.add_argument('-n', '--rename_file', type=bool, required=False, default=True)
 
 args = parser.parse_args()
 
@@ -91,6 +89,7 @@ def main():
 	exif_min_year_discart_date = args.exif_min_year_discart_date
 	generate_folder_sufix = args.generate_folder_sufix
 	min_size_escape_low_resolution = args.min_size_escape_low_resolution
+	rename_file = args.rename_file
 
 	#files_orign = 'D:\\dropbox\\fotos-tpv\\_organizar\\'
 	#batch_quantity_images = 100
@@ -150,12 +149,15 @@ def main():
 
 					if (image_file_creation_date != 0):
 						date_dir_destination  = datetime.datetime.fromtimestamp(image_file_creation_date)
-						if (len(file_name)>100):
-							new_file_name = date_dir_destination.strftime(files_prefix) + '-' + file_name[-100:]
-						else:
-							new_file_name = date_dir_destination.strftime(files_prefix) + '-' + file_name
 						dir_destination = date_dir_destination.strftime(folders)
-						logger.debug('Filesystem timestamp: ' + str(image_file_creation_date))
+						if (rename_file == False):
+							new_file_name = file_name
+						else:
+							if (len(file_name)>100):
+								new_file_name = date_dir_destination.strftime(files_prefix) + '-' + file_name[-100:]
+							else:
+								new_file_name = date_dir_destination.strftime(files_prefix) + '-' + file_name
+						#logger.debug('Filesystem timestamp: ' + str(image_file_creation_date))
 						logger.debug('Filesystem date: ' + str(date_dir_destination))
 					else:
 						logger.debug('No date from filesystem!')
@@ -218,11 +220,14 @@ def main():
 									date_dir_destination = datetime.date(int(dir_image_year), int(dir_image_month), int(dir_image_day))
 									#logger.info('azul - RegEx: ' + regex_match.group() + ', Year: '+ dir_image_year + ', Month: ' + dir_image_month + ', Day: ' + dir_image_day)
 					if ( dir_image_year != '0000'):
-						if (len(file_name)>100):
-							new_file_name = date_dir_destination.strftime(files_prefix) + '-' + file_name[-100:]
-						else:
-							new_file_name = date_dir_destination.strftime(files_prefix) + '-' + file_name
 						dir_destination = date_dir_destination.strftime(folders)
+						if (rename_file == False):
+							new_file_name = file_name
+						else:
+							if (len(file_name)>100):
+								new_file_name = date_dir_destination.strftime(files_prefix) + '-' + file_name[-100:]
+							else:
+								new_file_name = date_dir_destination.strftime(files_prefix) + '-' + file_name
 						logger.debug('File name date: ' + str(date_dir_destination))
 					else:
 						logger.debug('No date from file name!')
@@ -235,6 +240,8 @@ def main():
 						image = Image.open(image_file)
 						exif_dict = piexif.load(image.info['exif'])
 						#logger.debug('EXIF loaded successfuly.')
+					except WindowsError as e:
+						logger.error("The error thrown was {e}".format(e=e))
 					except KeyError:
 						logger.debug('No Exif data!')
 						exif_dict = {}
@@ -290,10 +297,13 @@ def main():
 
 					if (exif_utilizado != ''):
 						dir_destination = date_dir_destination.strftime(folders)
-						if (len(file_name)>100):
-							new_file_name = date_dir_destination.strftime(files_prefix) + '-' + file_name[-100:]
+						if (rename_file == False):
+							new_file_name = file_name
 						else:
-							new_file_name = date_dir_destination.strftime(files_prefix) + '-' + file_name
+							if (len(file_name)>100):
+								new_file_name = date_dir_destination.strftime(files_prefix) + '-' + file_name[-100:]
+							else:
+								new_file_name = date_dir_destination.strftime(files_prefix) + '-' + file_name
 						logger.debug('File name from EXIF ('+ exif_utilizado +'): ' + str(date_dir_destination))
 					else:
 						logger.debug('No date from EXIF!')
@@ -338,37 +348,77 @@ def main():
 					else:
 						new_file_dir = files_destination + dir_destination + '\\'
 
-					logger.info('New file and folder: ' + new_file_dir + new_file_name)
+					complete_path_new_file = str(new_file_dir + new_file_name).lower()
+					logger.info('New file and folder: ' + complete_path_new_file)
 
 					if not os.path.exists(new_file_dir):
 						os.makedirs(new_file_dir)
 
 					arquivo_movido = False
 
-					if (arquivo_movido == False):
+					if os.path.exists(complete_path_new_file):
 						try:
-							shutil.move(image_file, new_file_dir + new_file_name)
-							arquivo_movido = True
-							logger.info('Image was moved.')
-						except PermissionError:
-							logger.error('Error trying to move file.')
+							logger.debug('Tamanho origem: ' + str(os.path.getsize(image_file)))
+							logger.debug('Tamanho destino: ' + str(os.path.getsize(complete_path_new_file)))
+							if (os.path.getsize(image_file) == os.path.getsize(complete_path_new_file)):
+								try:
+									os.unlink(image_file)
+									arquivo_movido = True
+								except WindowsError as e:
+									logger.error("The error thrown was {e}".format(e=e))
+									if (os.path.getsize(image_file) == os.path.getsize(complete_path_new_file)):
+										logger.info('Esperando 10s...')
+										'''
+										time.sleep(1)
+										try:
+											os.remove(image_file)
+											arquivo_movido = True
+										except WindowsError as e:
+											logger.error("The error thrown was {e}".format(e=e))
+										'''
+						except WindowsError as e:
+							logger.error("The error thrown was {e}".format(e=e))
 
 					if (arquivo_movido == False):
 						try:
-							os.rename(image_file, new_file_dir + new_file_name)
+							shutil.move(image_file, complete_path_new_file)
+							arquivo_movido = True
+							logger.info('Image was moved.')
+						except WindowsError as e:
+							logger.error("There was an error copying {picture} to {target}".format(picture=image_file,target=complete_path_new_file))
+							logger.error("The error thrown was {e}".format(e=e))
+						except PermissionError:
+							logger.error('Error trying to rename file.')
+
+					if (arquivo_movido == False):
+						try:
+							os.rename(image_file, complete_path_new_file)
 							arquivo_movido = True
 							logger.info('Image was renamed.')
 						except PermissionError:
 							logger.error('Error trying to rename file.')
 
+					'''
 					if (arquivo_movido == False):
 						try:
-							os.link(image_file, new_file_dir + new_file_name)
-							os.remove(image_file)
+							#os.link(image_file, complete_path_new_file)
+							#os.remove(image_file)
 							arquivo_movido = True
 							logger.info('Image was copied and deleted.')
 						except PermissionError:
 							logger.error('Error trying to rename file.')
+					'''
+
+					if (arquivo_movido == False):
+						logger.debug('Tamanho origem: ' + str(os.path.getsize(image_file)))
+						logger.debug('Tamanho destino: ' + str(os.path.getsize(complete_path_new_file)))
+						if (os.path.getsize(image_file) == os.path.getsize(complete_path_new_file)):
+							try:
+								os.remove(image_file)
+							except WindowsError as e:
+								logger.error("The error thrown was {e}".format(e=e))
+							except PermissionError:
+								logger.error('Error trying to rename file.')
 
 				else:
 					logger.debug('Batch limt: ' + str(batch_quantity_images) + ' - Ignoring file ' + str(image_file))
