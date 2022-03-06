@@ -1,42 +1,39 @@
-from xmlrpc.client import DateTime
-from PIL import Image
+# Basic references:
+# https://www.youtube.com/watch?v=--_K4G3HCcI
+# https://blog.gunderson.tech/26307/using-virtual-environment-requirements-txt-with-python
+# https://www.programiz.com/python-programming/datetime/strftime
+# Other references:
 # Reference: https://www.geeksforgeeks.org/working-images-python/
+# Reference:  https://www.codevscolor.com/python-print-date-time-hour-minute
+# Reference: https://www.programiz.com/python-programming/datetime
+# Reference: https://www.tutorialspoint.com/How-to-print-current-date-and-time-using-Python
+# Reference: https://pypi.org/project/coloredlogs/
+# Reference: https://coloredlogs.readthedocs.io/en/latest/readme.html
+# Reference: https://stackoverflow.com/questions/384076/how-can-i-color-python-logging-output
+# Reference: https://www.geeksforgeeks.org/logging-in-python/
 
+from array import ArrayType
 import os
 import platform
 import re
 import sys
 import pathlib
-
 import datetime
 import time
-# Reference:  https://www.codevscolor.com/python-print-date-time-hour-minute
-# Reference: https://www.programiz.com/python-programming/datetime
-# Reference: https://www.tutorialspoint.com/How-to-print-current-date-and-time-using-Python
-
 import shutil
-import shutils
-
-import coloredlogs
-# Reference: https://pypi.org/project/coloredlogs/
-# Reference: https://coloredlogs.readthedocs.io/en/latest/readme.html
-# Reference: https://stackoverflow.com/questions/384076/how-can-i-color-python-logging-output
-
 import logging
-# Reference: https://www.geeksforgeeks.org/logging-in-python/
-
+import coloredlogs
 import piexif
+import argparse
+import exifread
+
+from xmlrpc.client import DateTime
+from PIL import Image
 from asyncio import exceptions
 from pickle import FALSE
-import argparse
-
-import exifread
 from GPSPhoto import gpsphoto
 
-# Basic References:
-# https://www.youtube.com/watch?v=--_K4G3HCcI
-# https://blog.gunderson.tech/26307/using-virtual-environment-requirements-txt-with-python
-# https://www.programiz.com/python-programming/datetime/strftime
+# Obtain parameters from the system call:
 
 parser = argparse.ArgumentParser(description='Script options parser.')
 
@@ -44,7 +41,7 @@ parser.add_argument('-o', '--files_orign', type=str, required=False, default='.\
 parser.add_argument('-d', '--files_destination', type=str, required=False, default='.\\resources\\output_files\\')
 parser.add_argument('-f', '--folders', type=str, required=False, default='%Y_%m')
 parser.add_argument('-p', '--files_prefix', type=str, required=False, default='%Y_%m_%d_%Hh%Mm%Ss')
-parser.add_argument('-q', '--batch_quantity_images', type=int, required=False, default=0)
+parser.add_argument('-q', '--batch_quantity_files', type=int, required=False, default=0)
 parser.add_argument('-y', '--exif_min_year_discart_date', type=int, required=False, default=1990)
 parser.add_argument('-s', '--min_size_escape_low_resolution', type=int, required=False, default=200000)
 parser.add_argument('-g', '--generate_folder_sufix', type=bool, required=False, default=True)
@@ -52,12 +49,21 @@ parser.add_argument('-n', '--rename_file', type=bool, required=False, default=Tr
 
 args = parser.parse_args()
 
-# Define what image and video file extensions to search for:
-IMAGE_EXTENSIONS = ('.png', '.jpeg', '.jpg', '.gif')
-VIDEOS_EXTENSIONS = ('.mov', 'mp4')
+# Version:
+PROJETCT_VERSION = '1.0.0.20220305202600'
+
+# Define extensions to be processed and to obtain metadata:
+IMAGE_EXTENSIONS = ('.png', '.jpeg', '.jpg', '.gif', '.bmp', '.tif')
+VIDEO_EXTENSIONS = ('.mov', '.mp4', '.avi', '.mov')
+MSOFFICE_EXTENSIONS = ('.doc', '.docx', '.xls', '.xlsx')
+OTHER_EXTENSIONS = ('.pdf', )
+ALL_EXTENSIONS = IMAGE_EXTENSIONS + VIDEO_EXTENSIONS + MSOFFICE_EXTENSIONS + OTHER_EXTENSIONS
+
 
 #----------------------------------------------------------------------------------------------#
-def log_inicialization():
+# Reference: https://pypi.org/project/coloredlogs/
+def log_inicialization() -> logging.Logger:
+
 	# Create a logger object.
 	logger = logging.getLogger(__name__)
 	# Setting the threshold of logger to DEBUG
@@ -69,9 +75,8 @@ def log_inicialization():
 		filemode='w'
 	)
 
-	# Reference: https://pypi.org/project/coloredlogs/
 	coloredlogs.install(
-		#level='DEBUG', 
+		level='DEBUG', 
 		logger=logger, 
 		milliseconds=True, 
 		fmt='%(asctime)s,%(msecs)03d %(levelname)s %(message)s' 
@@ -80,87 +85,125 @@ def log_inicialization():
 	return logger
 
 #----------------------------------------------------------------------------------------------#
+# Reference: https://stackoverflow.com/questions/237079/how-to-get-file-creation-and-modification-date-times
+# Reference: https://www.geeksforgeeks.org/how-to-get-file-creation-and-modification-date-or-time-in-python/
+def get_filesystem_datetime(logger: logging.Logger, absolut_file_name: str) -> datetime:
+
+	filesystem_datetime = None
+	if (platform.system() == 'Windows'):
+		try:
+			filesystem_datetime = min(os.path.getctime(absolut_file_name), os.path.getatime(absolut_file_name), os.path.getmtime(absolut_file_name))
+		except Exception as e:
+			logger.error(str(e))
+	else:
+		try:
+			stats = os.stat(absolut_file_name)
+			filesystem_datetime = min(stats.st_birthtime, stats.st_mtime, stats.st_ctime)
+		except Exception as e:
+			logger.error(str(e))
+
+	if (filesystem_datetime != None):
+		datetime_filesystem = datetime.datetime.fromtimestamp(filesystem_datetime)
+	else:
+		datetime_filesystem = None
+
+	return datetime_filesystem
+
+
+#----------------------------------------------------------------------------------------------#
+# Reference: https://datagy.io/python-return-multiple-values/
+
+#----------------------------------------------------------------------------------------------#
+# Reference: https://stackoverflow.com/questions/2909975/python-list-directory-subdirectory-and-files#2909998
+# Reference: https://docs.python.org/3/library/datetime.html
+# Reference: https://pynative.com/python-datetime-format-strftime/
+# Reference: https://code-paper.com/python/examples-python-datetime-convert-float-to-date
 def main():
+
+	# Obtain parameters from the system call:
 	files_orign = args.files_orign
 	files_destination = args.files_destination
 	folders = args.folders
 	files_prefix = args.files_prefix
-	batch_quantity_images = args.batch_quantity_images
+	batch_quantity_files = args.batch_quantity_files
 	exif_min_year_discart_date = args.exif_min_year_discart_date
 	generate_folder_sufix = args.generate_folder_sufix
 	min_size_escape_low_resolution = args.min_size_escape_low_resolution
 	rename_file = args.rename_file
 
-	#files_orign = 'D:\\dropbox\\fotos-tpv\\_organizar\\'
-	#batch_quantity_images = 100
-
 	logger = log_inicialization()
 
-	logger.info('<< pyPhotosOrganizeTPV >>')
+	logger.info('---------- << pyPhotosOrganizeTPV >> ----------')
 
-	logger.info('Starting script...')
+	logger.info('Starting script version '+ PROJETCT_VERSION +'...')
 
 	now = datetime.datetime.now()
-	logger.info('Arguments:')
-	logger.info('Files Orign (INPUT): ' + files_orign)
-	logger.info('Files Destination (OUTPUT): ' + files_destination)
-	logger.info('Folders: '+ folders)
-	logger.info('Show datetime in prefix format: ' +  now.strftime(folders))
-	logger.info('Files Prefix: '+ files_prefix)
-	logger.debug('Show datetime in prefix format: ' + now.strftime(files_prefix))
+	logger.debug('------ Arguments / Parameters:')
+	logger.debug('Files Orign (INPUT): ' + files_orign)
+	logger.debug('Files Destination (OUTPUT): ' + files_destination)
+	logger.debug('Folders mask: '+ folders)
+	logger.debug('Files prefix mask: '+ files_prefix)
+	
+	logger.debug('------ Test:')
+	logger.debug('Showing datetime in folder format: ' +  now.strftime(folders))
+	logger.debug('Showing datetime in prefix format: ' + now.strftime(files_prefix))
 
-	# Reference: https://stackoverflow.com/questions/2909975/python-list-directory-subdirectory-and-files#2909998
-	counter_quantity_images = 0
-	for path, subdirs, files in os.walk(files_orign):
-		for file_name in files:
-			#image_file = os.path.join(path, file_name)
-			image_file = str(pathlib.PurePath(path, file_name))
-			if (file_name.endswith(IMAGE_EXTENSIONS)):
-				counter_quantity_images = counter_quantity_images + 1
-				if ((batch_quantity_images == 0) or (counter_quantity_images <= batch_quantity_images)):
-					logger.info('--- Processando imagem: ' + str(counter_quantity_images) + ' de no máximo ' + str(batch_quantity_images) + ' ---')
-					logger.info('Image: ' + image_file)
+	counter_files_processed = 0
+	counter_files_on_destination = 0
 
+	file_name = ''
+	file_name_absolut = ''
+
+	if (batch_quantity_files > 0):
+		msg_max_file_processed = ' to maximum '+ str(batch_quantity_files) +' files...'
+	else:
+		batch_quantity_files = 0
+		msg_max_file_processed = ' to all files in orign folder...'
+
+	for original_path, original_subdir, original_file in os.walk(files_orign):
+
+		for file_name in original_file:
+
+			file_name_absolut = os.path.abspath(str(pathlib.PurePath(original_path, file_name)))
+
+			if (file_name.endswith(ALL_EXTENSIONS)):
+				counter_files_processed = counter_files_processed + 1
+
+				if ((batch_quantity_files == 0) or (counter_files_processed <= batch_quantity_files)):
+					logger.info('--- Processing file #' + str(counter_files_processed) + msg_max_file_processed)
+					logger.info('Absolut file name: ' + file_name_absolut)
+
+
+					'''
 					dir_image_year = '0000'
 					dir_image_month = '00'
 					dir_image_sufix = 'others'
-					exif_utilizado = ''
 					date_dir_destination = datetime.date(int('1977'), int('08'), int('17'))
 					dir_destination = date_dir_destination.strftime(folders)
 					new_file_name = ''
+					'''
+					exif_utilizado = ''
 
 					#----------------------------------------------------------------------#
-					# Reading filesystem date information:
-					# Reference: https://stackoverflow.com/questions/237079/how-to-get-file-creation-and-modification-date-times
-					# Reference: https://www.geeksforgeeks.org/how-to-get-file-creation-and-modification-date-or-time-in-python/
-					# Reference: https://docs.python.org/3/library/datetime.html
-					# Reference: https://pynative.com/python-datetime-format-strftime/
-					# Reference: https://code-paper.com/python/examples-python-datetime-convert-float-to-date
+					file_datetime_stamp = None
+					filesystem_file_datetime = get_filesystem_datetime(logger, file_name_absolut)
 
-					image_file_creation_date = 0
-					if platform.system() == 'Windows':
-						image_file_creation_date = min(os.path.getctime(image_file), os.path.getctime(image_file))
+					if (filesystem_file_datetime != None):
+						logger.debug('Filesystem datetime stamp: ' + str(filesystem_file_datetime))
+						if ((file_datetime_stamp == None) or (file_datetime_stamp > filesystem_file_datetime)):
+							file_datetime_stamp = filesystem_file_datetime
 					else:
-						stats = os.stat(image_file)
-						try:
-							image_file_creation_date = stats.st_ctime
-						except AttributeError:
-							image_file_creation_date = min(stats.st_birthtime, stats.st_mtime, stats.st_ctime)
+						logger.debug('No datetime from filesystem!')
 
-					if (image_file_creation_date != 0):
-						date_dir_destination  = datetime.datetime.fromtimestamp(image_file_creation_date)
-						dir_destination = date_dir_destination.strftime(folders)
+					if (file_datetime_stamp != None):
+						dir_destination = file_datetime_stamp.strftime(folders)
 						if (rename_file == False):
 							new_file_name = file_name
 						else:
 							if (len(file_name)>100):
-								new_file_name = date_dir_destination.strftime(files_prefix) + '-' + file_name[-100:]
+								new_file_name = file_datetime_stamp.strftime(files_prefix) + '-' + file_name[-100:]
 							else:
-								new_file_name = date_dir_destination.strftime(files_prefix) + '-' + file_name
-						#logger.debug('Filesystem timestamp: ' + str(image_file_creation_date))
-						logger.debug('Filesystem date: ' + str(date_dir_destination))
-					else:
-						logger.debug('No date from filesystem!')
+								new_file_name = file_datetime_stamp.strftime(files_prefix) + '-' + file_name
 
 					#----------------------------------------------------------------------#
 					# Reading date information from file name using RegEx:
@@ -169,7 +212,7 @@ def main():
 
 					# YYYY-MM-DD-HH-MM-SS:
 					datetime_regex = re.compile(r'(19[7-9][0-9]|20[0-2][0-9])([-_])(0[1-9]|1[0-2])([-_])(0[1-9]|[1-2][0-9]|3[0-1])([-_])([0-1][0-9]|2[0-4])([-_])([0-5][0-9])([-_])([0-5][0-9])')
-					regex_match = datetime_regex.search(image_file)
+					regex_match = datetime_regex.search(file_name_absolut)
 					if not(regex_match is None):
 						dir_image_second = regex_match.group()[17:19]
 						dir_image_minute = regex_match.group()[14:16]
@@ -183,7 +226,7 @@ def main():
 					else:
 						# YYYYMMDD_HHMMSS:
 						datetime_regex = re.compile(r'(19[7-9][0-9]|20[0-2][0-9])(0[1-9]|1[0-2])(0[1-9]|[1-2][0-9]|3[0-1])([-_])([0-1][0-9]|2[0-4])([0-5][0-9])([0-5][0-9])')
-						regex_match = datetime_regex.search(image_file)
+						regex_match = datetime_regex.search(file_name_absolut)
 						if not(regex_match is None):
 							dir_image_second = regex_match.group()[13:15]
 							dir_image_minute = regex_match.group()[11:13]
@@ -196,7 +239,7 @@ def main():
 						else:
 							# YYYYMMDD, YYYY_MM_DD, YYYY-MM-DD:
 							datetime_regex = re.compile(r'(19[7-9][0-9]|20[0-2][0-9])([-_]?)(0[1-9]|1[0-2])([-_]?)(0[1-9]|[1-2][0-9]|3[0-1])')
-							regex_match = datetime_regex.search(image_file)
+							regex_match = datetime_regex.search(file_name_absolut)
 							if not(regex_match is None):
 								dir_image_day = regex_match.group()[-2:]
 								if (len(regex_match.group())>8):
@@ -209,7 +252,7 @@ def main():
 							else:
 								# DDMMYYYY, DD_MM_YYYY, DD-MM-YYYY:
 								datetime_regex = re.compile(r'(0[1-9]|[1-2][0-9]|3[0-1])([-_]?)(0[1-9]|1[0-2])([-_]?)(19[7-9][0-9]|20[0-2][0-9])')
-								regex_match = datetime_regex.search(image_file)
+								regex_match = datetime_regex.search(file_name_absolut)
 								if not(regex_match is None):
 									dir_image_day = regex_match.group()[0:2]
 									if (len(regex_match.group())>8):
@@ -237,7 +280,7 @@ def main():
 					# Reference: https://orthallelous.wordpress.com/2015/04/19/extracting-date-and-time-from-images-with-python/
 					# Reference: https://github.com/vitords/sort-images/blob/master/sort_images.py
 					try:
-						image = Image.open(image_file)
+						image = Image.open(file_name_absolut)
 						exif_dict = piexif.load(image.info['exif'])
 						#logger.debug('EXIF loaded successfuly.')
 					except WindowsError as e:
@@ -312,7 +355,7 @@ def main():
 					# Reading Geodata information:
 					# Reference: https://towardsdatascience.com/grabbing-geodata-from-your-photos-library-using-python-60eb0462e147
 					#try:
-						#geodata = gpsphoto.getGPSData(image_file)
+						#geodata = gpsphoto.getGPSData(file_name_absolut)
 						#logger.debug('GeoData: ' + str(geodata))
 					#except KeyError:
 						#logger.error('GeoData with erros!')
@@ -323,22 +366,22 @@ def main():
 					# Reference: https://pythonguides.com/python-find-substring-in-string/
 					# Reference: https://flaviocopes.com/python-get-file-details/
 
-					image_file_size = 0
+					file_name_absolut_size = 0
 					if platform.system() == 'Windows':
-						image_file_size = os.path.getsize(image_file)
+						file_name_absolut_size = os.path.getsize(file_name_absolut)
 					else:
-						stats = os.stat(image_file)
-						image_file_size = stats.st_size
-					if (image_file_size < min_size_escape_low_resolution):
+						stats = os.stat(file_name_absolut)
+						file_name_absolut_size = stats.st_size
+					if (file_name_absolut_size < min_size_escape_low_resolution):
 						dir_image_sufix = 'low_resolution'
 
-					if ('insta' in image_file.lower()):
+					if ('insta' in file_name_absolut.lower()):
 						dir_image_sufix = 'social_media'
-					if (('instagram' in image_file.lower()) or ('facebook' in image_file.lower())):
+					if (('instagram' in file_name_absolut.lower()) or ('facebook' in file_name_absolut.lower())):
 						dir_image_sufix = 'social_media'
-					if (('message' in image_file.lower()) or ('telegram' in image_file.lower()) or ('whats' in image_file.lower()) or ('instant' in image_file.lower())):
+					if (('message' in file_name_absolut.lower()) or ('telegram' in file_name_absolut.lower()) or ('whats' in file_name_absolut.lower()) or ('instant' in file_name_absolut.lower())):
 						dir_image_sufix = 'instant_messages'
-					if (('screen' in image_file.lower()) or ('capture' in image_file.lower())):
+					if (('screen' in file_name_absolut.lower()) or ('capture' in file_name_absolut.lower())):
 						dir_image_sufix = 'screen_capture'
 
 					logger.debug('Sufixo encontrado no nome: ' + dir_image_sufix)
@@ -357,42 +400,43 @@ def main():
 					arquivo_movido = False
 
 					if os.path.exists(complete_path_new_file):
+						counter_files_on_destination = counter_files_on_destination + 1
 						try:
-							logger.debug('Tamanho origem: ' + str(os.path.getsize(image_file)))
+							logger.debug('Tamanho origem: ' + str(os.path.getsize(file_name_absolut)))
 							logger.debug('Tamanho destino: ' + str(os.path.getsize(complete_path_new_file)))
-							if (os.path.getsize(image_file) == os.path.getsize(complete_path_new_file)):
+							if (os.path.getsize(file_name_absolut) == os.path.getsize(complete_path_new_file)):
 								try:
-									os.unlink(image_file)
+									os.unlink(file_name_absolut)
 									arquivo_movido = True
 								except WindowsError as e:
 									logger.error("The error thrown was {e}".format(e=e))
-									if (os.path.getsize(image_file) == os.path.getsize(complete_path_new_file)):
+									'''
+									if (os.path.getsize(file_name_absolut) == os.path.getsize(complete_path_new_file)):
 										logger.info('Esperando 10s...')
-										'''
 										time.sleep(1)
 										try:
-											os.remove(image_file)
+											os.remove(file_name_absolut)
 											arquivo_movido = True
 										except WindowsError as e:
 											logger.error("The error thrown was {e}".format(e=e))
-										'''
+									'''
 						except WindowsError as e:
 							logger.error("The error thrown was {e}".format(e=e))
 
 					if (arquivo_movido == False):
 						try:
-							shutil.move(image_file, complete_path_new_file)
+							shutil.move(file_name_absolut, complete_path_new_file)
 							arquivo_movido = True
 							logger.info('Image was moved.')
 						except WindowsError as e:
-							logger.error("There was an error copying {picture} to {target}".format(picture=image_file,target=complete_path_new_file))
+							logger.error("There was an error copying {picture} to {target}".format(picture=file_name_absolut,target=complete_path_new_file))
 							logger.error("The error thrown was {e}".format(e=e))
 						except PermissionError:
 							logger.error('Error trying to rename file.')
 
 					if (arquivo_movido == False):
 						try:
-							os.rename(image_file, complete_path_new_file)
+							os.rename(file_name_absolut, complete_path_new_file)
 							arquivo_movido = True
 							logger.info('Image was renamed.')
 						except PermissionError:
@@ -401,8 +445,8 @@ def main():
 					'''
 					if (arquivo_movido == False):
 						try:
-							#os.link(image_file, complete_path_new_file)
-							#os.remove(image_file)
+							#os.link(file_name_absolut, complete_path_new_file)
+							#os.remove(file_name_absolut)
 							arquivo_movido = True
 							logger.info('Image was copied and deleted.')
 						except PermissionError:
@@ -410,21 +454,23 @@ def main():
 					'''
 
 					if (arquivo_movido == False):
-						logger.debug('Tamanho origem: ' + str(os.path.getsize(image_file)))
+						logger.debug('Tamanho origem: ' + str(os.path.getsize(file_name_absolut)))
 						logger.debug('Tamanho destino: ' + str(os.path.getsize(complete_path_new_file)))
-						if (os.path.getsize(image_file) == os.path.getsize(complete_path_new_file)):
+						if (os.path.getsize(file_name_absolut) == os.path.getsize(complete_path_new_file)):
 							try:
-								os.remove(image_file)
+								os.remove(file_name_absolut)
 							except WindowsError as e:
 								logger.error("The error thrown was {e}".format(e=e))
 							except PermissionError:
 								logger.error('Error trying to rename file.')
 
 				else:
-					logger.debug('Batch limt: ' + str(batch_quantity_images) + ' - Ignoring file ' + str(image_file))
+					logger.debug('File ignored - batch limit: ' + str(batch_quantity_files) + ' - file ' + str(file_name_absolut))
 			else:
-				logger.debug('Extension - Ignoring file ' + str(image_file))
+				logger.debug('File ignored (extension): ' + str(file_name_absolut))
 
+	if (counter_files_on_destination >0):
+		logger.warning('Images pre-existents on destine: '+str(counter_files_on_destination))
 	sys.exit(0)
 
 #----------------------------------------------------------------------------------------------#
