@@ -27,7 +27,7 @@ import piexif
 import argparse
 import exifread
 
-from xmlrpc.client import DateTime
+from xmlrpc.client import Boolean, DateTime
 from PIL import Image
 from asyncio import exceptions
 from pickle import FALSE
@@ -46,11 +46,13 @@ parser.add_argument('-y', '--exif_min_year_discart_date', type=int, required=Fal
 parser.add_argument('-s', '--min_size_escape_low_resolution', type=int, required=False, default=200000)
 parser.add_argument('-g', '--generate_folder_sufix', type=bool, required=False, default=True)
 parser.add_argument('-n', '--rename_file', type=bool, required=False, default=True)
+parser.add_argument('-l', '--timestamp_log', type=bool, required=False, default=True)
 
 args = parser.parse_args()
 
 # Version:
-PROJETCT_VERSION = '1.0.0.20220305202600'
+PROJECT_VERSION = '1.0.0.20220305202600'
+PROJECT_DOING = 'Refectoring to functions.'
 
 # Define extensions to be processed and to obtain metadata:
 IMAGE_EXTENSIONS = ('.png', '.jpeg', '.jpg', '.gif', '.bmp', '.tif')
@@ -62,7 +64,21 @@ ALL_EXTENSIONS = IMAGE_EXTENSIONS + VIDEO_EXTENSIONS + MSOFFICE_EXTENSIONS + OTH
 
 #----------------------------------------------------------------------------------------------#
 # Reference: https://pypi.org/project/coloredlogs/
-def log_inicialization() -> logging.Logger:
+def log_inicialization(log_with_timestamp: Boolean) -> logging.Logger:
+
+	log_file_name = None
+
+	if (platform.system() == 'Windows'):
+		if (log_with_timestamp):
+			log_file_name='.\\tmp\\' + datetime.datetime.strftime(datetime.datetime.now(), '%Y_%m_%d_%Hh%Mm%Ss') + '-py_photos_organize_tpv.log'
+		else:
+			log_file_name='.\\tmp\\py_photos_organize_tpv.log'
+	else:
+		if (log_with_timestamp):
+			log_file_name='.//tmp//' + datetime.datetime.strftime(datetime.datetime.now(), '%Y_%m_%d_%Hh%Mm%Ss') + '-py_photos_organize_tpv.log'
+		else:
+			log_file_name='.//tmp//py_photos_organize_tpv.log'
+
 
 	# Create a logger object.
 	logger = logging.getLogger(__name__)
@@ -70,7 +86,7 @@ def log_inicialization() -> logging.Logger:
 	logger.setLevel(logging.DEBUG)
 	# Create and configure logger
 	logging.basicConfig(
-		filename='.\\tmp\\' + datetime.datetime.strftime(datetime.datetime.now(), '%Y_%m_%d_%Hh%Mm%Ss') + '-py_photos_organize_tpv.log', 
+		filename=log_file_name, 
 		format='%(asctime)s %(name)s [%(process)d] %(levelname)s %(message)s', 
 		filemode='w'
 	)
@@ -88,27 +104,131 @@ def log_inicialization() -> logging.Logger:
 # Reference: https://stackoverflow.com/questions/237079/how-to-get-file-creation-and-modification-date-times
 # Reference: https://www.geeksforgeeks.org/how-to-get-file-creation-and-modification-date-or-time-in-python/
 def get_filesystem_datetime(logger: logging.Logger, absolut_file_name: str) -> datetime:
-
+	filesystem_datetime_create = None
 	filesystem_datetime = None
+	datetime_filesystem = None
+
 	if (platform.system() == 'Windows'):
 		try:
-			filesystem_datetime = min(os.path.getctime(absolut_file_name), os.path.getatime(absolut_file_name), os.path.getmtime(absolut_file_name))
+			filesystem_datetime_create =os.path.getctime(absolut_file_name)
+			try:
+				filesystem_datetime = min(filesystem_datetime_create, os.path.getatime(absolut_file_name), os.path.getmtime(absolut_file_name))
+			except Exception as e:
+				logger.error(str(e))
 		except Exception as e:
 			logger.error(str(e))
 	else:
 		try:
 			stats = os.stat(absolut_file_name)
-			filesystem_datetime = min(stats.st_birthtime, stats.st_mtime, stats.st_ctime)
+			filesystem_datetime_create = min(stats.st_birthtime)
+			try:
+				filesystem_datetime = min(filesystem_datetime_create, stats.st_mtime, stats.st_ctime)
+			except Exception as e:
+				logger.error(str(e))
 		except Exception as e:
 			logger.error(str(e))
 
 	if (filesystem_datetime != None):
 		datetime_filesystem = datetime.datetime.fromtimestamp(filesystem_datetime)
 	else:
-		datetime_filesystem = None
+		if (filesystem_datetime_create != None):
+			datetime_filesystem = datetime.datetime.fromtimestamp(filesystem_datetime_create)
+		else:
+			datetime_filesystem = None
 
 	return datetime_filesystem
 
+#----------------------------------------------------------------------------------------------#
+def get_new_absolut_path(logger: logging.Logger, file_date: datetime, folders_mask: str,  destination_dir: str) -> str:
+	new_dir_destination = None
+	new_subdir_date = None
+	absolute_destination_dir = None
+
+	absolute_destination_dir =  os.path.abspath(destination_dir)
+
+
+	if ((file_date != None) and (folders_mask != None) and (folders_mask != '')):
+		if (platform.system() == 'Windows'):
+			if (absolute_destination_dir[-1:] != '\\'):
+				absolute_destination_dir = absolute_destination_dir + '\\'
+		else:
+			if (absolute_destination_dir[-1:] != '//'):
+				absolute_destination_dir = absolute_destination_dir + '//'
+		new_subdir_date = file_date.strftime(folders_mask)
+		new_dir_destination = absolute_destination_dir + new_subdir_date
+
+	if ((new_dir_destination[-1:] == '\\') or (new_dir_destination[-1:] == '//')):
+			new_dir_destination = new_dir_destination[0:-1]
+
+	return new_dir_destination
+
+#----------------------------------------------------------------------------------------------#
+# Reference: https://www.freecodecamp.org/news/how-to-substring-a-string-in-python/
+def get_new_file_name(logger: logging.Logger, file_date: DateTime, actual_file_name: str, prefix_file_mask: str, substring_remocao: str) -> str:
+	new_file_name = None
+
+	quantidade_de_pontos = 0
+	tmp_file_name = actual_file_name
+
+	if (len(substring_remocao) > 0):
+		tmp_file_name = actual_file_name.replace(substring_remocao, '')
+
+	quantidade_de_pontos = tmp_file_name[-5:].count('.')
+	if (quantidade_de_pontos == 1):
+		tmp_file_name = tmp_file_name[0:-5].replace('.', '-') + tmp_file_name[-5:]
+
+	tmp_file_name = tmp_file_name.replace('(', '-')
+	tmp_file_name = tmp_file_name.replace(')', '-')
+	tmp_file_name = tmp_file_name.replace('[', '-')
+	tmp_file_name = tmp_file_name.replace(']', '_')
+	tmp_file_name = tmp_file_name.replace('--', '-')
+	tmp_file_name = tmp_file_name.replace('--', '-')
+	tmp_file_name = tmp_file_name.replace('--', '-')
+
+	tmp_file_name = tmp_file_name.replace(' ', '_')
+	tmp_file_name = tmp_file_name.replace('~', '_')
+	tmp_file_name = tmp_file_name.replace('__', '_')
+	tmp_file_name = tmp_file_name.replace('__', '_')
+	tmp_file_name = tmp_file_name.replace('__', '_')
+
+	tmp_file_name = tmp_file_name.replace('ç ', 'c')
+
+	tmp_file_name = tmp_file_name.replace('ã', 'a')
+	tmp_file_name = tmp_file_name.replace('á', 'a')
+	tmp_file_name = tmp_file_name.replace('à', 'a')
+	tmp_file_name = tmp_file_name.replace('ä', 'a')
+	tmp_file_name = tmp_file_name.replace('â', 'a')
+
+	tmp_file_name = tmp_file_name.replace('é', 'e')
+	tmp_file_name = tmp_file_name.replace('é', 'e')
+	tmp_file_name = tmp_file_name.replace('ë', 'e')
+	tmp_file_name = tmp_file_name.replace('ê', 'e')
+	
+	tmp_file_name = tmp_file_name.replace('í', 'i')
+	tmp_file_name = tmp_file_name.replace('ì', 'i')
+	tmp_file_name = tmp_file_name.replace('ï', 'i')
+	tmp_file_name = tmp_file_name.replace('î', 'i')
+
+	tmp_file_name = tmp_file_name.replace('õ', 'o')
+	tmp_file_name = tmp_file_name.replace('ó', 'o')
+	tmp_file_name = tmp_file_name.replace('ò', 'o')
+	tmp_file_name = tmp_file_name.replace('ö', 'o')
+	tmp_file_name = tmp_file_name.replace('ô', 'o')
+
+	tmp_file_name = tmp_file_name.replace('ú', 'u')
+	tmp_file_name = tmp_file_name.replace('ù', 'u')
+	tmp_file_name = tmp_file_name.replace('ü', 'u')
+	tmp_file_name = tmp_file_name.replace('û', 'u')
+
+	if (file_date != None):
+		if (len(tmp_file_name)>100):
+			new_file_name = file_date.strftime(prefix_file_mask) + '-' + tmp_file_name[-100:]
+		else:
+			new_file_name = file_date.strftime(prefix_file_mask) + '-' + tmp_file_name
+	else:
+		logger.error('It is not possible use date to prefix file name.')
+
+	return new_file_name
 
 #----------------------------------------------------------------------------------------------#
 # Reference: https://datagy.io/python-return-multiple-values/
@@ -130,12 +250,13 @@ def main():
 	generate_folder_sufix = args.generate_folder_sufix
 	min_size_escape_low_resolution = args.min_size_escape_low_resolution
 	rename_file = args.rename_file
+	timestamp_log = args.timestamp_log
 
-	logger = log_inicialization()
+	logger = log_inicialization(timestamp_log)
 
 	logger.info('---------- << pyPhotosOrganizeTPV >> ----------')
 
-	logger.info('Starting script version '+ PROJETCT_VERSION +'...')
+	logger.info('Starting script version [' + PROJECT_VERSION + '] doing <<' + PROJECT_DOING + '>>...')
 
 	now = datetime.datetime.now()
 	logger.debug('------ Arguments / Parameters:')
@@ -172,6 +293,7 @@ def main():
 				if ((batch_quantity_files == 0) or (counter_files_processed <= batch_quantity_files)):
 					logger.info('--- Processing file #' + str(counter_files_processed) + msg_max_file_processed)
 					logger.info('Absolut file name: ' + file_name_absolut)
+					file_datetime_type = None
 
 
 					'''
@@ -185,25 +307,22 @@ def main():
 					exif_utilizado = ''
 
 					#----------------------------------------------------------------------#
+					# Reading date from Filesystem:
+					filesystem_file_datetime = None
 					file_datetime_stamp = None
+
 					filesystem_file_datetime = get_filesystem_datetime(logger, file_name_absolut)
 
 					if (filesystem_file_datetime != None):
 						logger.debug('Filesystem datetime stamp: ' + str(filesystem_file_datetime))
 						if ((file_datetime_stamp == None) or (file_datetime_stamp > filesystem_file_datetime)):
+							file_datetime_type = 'FILESYSTEM'
 							file_datetime_stamp = filesystem_file_datetime
+						else:
+							logger.debug('Ignoring [FILESYSTEM], using [' + file_datetime_type + ']...')
 					else:
 						logger.debug('No datetime from filesystem!')
 
-					if (file_datetime_stamp != None):
-						dir_destination = file_datetime_stamp.strftime(folders)
-						if (rename_file == False):
-							new_file_name = file_name
-						else:
-							if (len(file_name)>100):
-								new_file_name = file_datetime_stamp.strftime(files_prefix) + '-' + file_name[-100:]
-							else:
-								new_file_name = file_datetime_stamp.strftime(files_prefix) + '-' + file_name
 
 					#----------------------------------------------------------------------#
 					# Reading date information from file name using RegEx:
@@ -360,6 +479,37 @@ def main():
 					#except KeyError:
 						#logger.error('GeoData with erros!')
 
+
+					#----------------------------------------------------------------------#
+					# Creating new absolut file name:
+					new_absolut_path = None
+					new_file_name = None
+					new_absolut_file_name = None
+
+					substring_remocao = ''
+
+					new_absolut_path = get_new_absolut_path(logger, file_datetime_stamp, folders, files_destination)
+
+					if (rename_file):
+						new_file_name = get_new_file_name(logger, file_datetime_stamp, file_name, files_prefix, substring_remocao)
+					else:
+						new_file_name = file_name
+
+					if (platform.system() == 'Windows'):
+						if (new_absolut_path[-1:] != '\\'):
+							new_absolut_file_name = new_absolut_path + '\\' + new_file_name
+						else:
+							new_absolut_file_name = new_absolut_path + new_file_name
+					else:
+						if (new_absolut_path[-1:] != '//'):
+							new_absolut_file_name = new_absolut_path + '//' + new_file_name
+						else:
+							new_absolut_file_name = new_absolut_path + new_file_name
+
+					logger.debug('Old filename:')
+					logger.debug(file_name_absolut)
+					logger.debug('New filename:')
+					logger.debug(new_absolut_file_name)
 
 					#----------------------------------------------------------------------#
 					# Generating folder sufix:
