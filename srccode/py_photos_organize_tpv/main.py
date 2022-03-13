@@ -51,7 +51,7 @@ parser.add_argument('-l', '--timestamp_log', type=bool, required=False, default=
 args = parser.parse_args()
 
 # Version:
-PROJECT_VERSION = '1.0.0.20220305202600'
+PROJECT_VERSION = '1.0.0.20220313000000'
 PROJECT_DOING = 'Refectoring to functions.'
 
 # Define extensions to be processed and to obtain metadata:
@@ -64,7 +64,7 @@ ALL_EXTENSIONS = IMAGE_EXTENSIONS + VIDEO_EXTENSIONS + MSOFFICE_EXTENSIONS + OTH
 
 #----------------------------------------------------------------------------------------------#
 # Reference: https://pypi.org/project/coloredlogs/
-def log_inicialization(log_with_timestamp: Boolean) -> logging.Logger:
+def log_inicialization(log_with_timestamp: Boolean = False) -> logging.Logger:
 
 	log_file_name = None
 
@@ -139,7 +139,121 @@ def get_filesystem_datetime(logger: logging.Logger, absolut_file_name: str) -> d
 	return datetime_filesystem
 
 #----------------------------------------------------------------------------------------------#
-def get_new_absolut_path(logger: logging.Logger, file_date: datetime, folders_mask: str,  destination_dir: str) -> str:
+# Reference: https://docs.python.org/3/library/re.html
+# Reference: https://github.com/excellentsport/picOrganizer
+# Reference: https://regexland.com/regex-dates/
+# Reference: https://datagy.io/python-return-multiple-values/
+def get_filename_datetime(absolut_file_name: str = '', logger: logging.Logger = None) -> tuple:
+
+	filename_datetime: datetime = None
+	filename_text: string = ''
+
+	o_filename_datetime: datetime = None
+	o_substring: str = ''
+	o_second: str = ''
+	o_minute: str = ''
+	o_hour: str = ''
+	o_day: str = ''
+	o_month: str = ''
+	o_year: str = ''
+
+	# YYYY?MM?DD?hh?mm?ss:
+	datetime_regex = re.compile(r'(19[7-9][0-9]|20[0-2][0-9])(\D)(0[1-9]|1[0-2])(\D)(0[1-9]|[1-2][0-9]|3[0-1])(\D)([0-1][0-9]|2[0-4])(\D)([0-5][0-9])(\D)([0-5][0-9])')
+	for reg_exp_match in datetime_regex.finditer(absolut_file_name):
+		if (reg_exp_match != None):
+			o_substring = reg_exp_match.group(0)
+			if (len(o_substring) > 0):
+				o_second = o_substring[17:19]
+				o_minute = o_substring[14:16]
+				o_hour = o_substring[11:13]
+				o_day = o_substring[8:10]
+				o_month = o_substring[5:7]
+				o_year = o_substring[0:4]
+				try:
+					o_filename_datetime = datetime.datetime(int(o_year), int(o_month), int(o_day), int(o_hour), int(o_minute), int(o_second))
+				except Exception as e:
+					if (logger != None):
+						logger.error("The error thrown was {msg_e}".format(msg_e=e))
+					else:
+						raise e
+				if ((filename_datetime == None) or (o_filename_datetime < filename_datetime)):
+					filename_text = o_substring
+					filename_datetime = o_filename_datetime
+
+	# YYYYMMDD?hhmmss:
+	datetime_regex = re.compile(r'(19[7-9][0-9]|20[0-2][0-9])(0[1-9]|1[0-2])(0[1-9]|[1-2][0-9]|3[0-1])([\D])([0-1][0-9]|2[0-4])([0-5][0-9])([0-5][0-9])')
+	for reg_exp_match in datetime_regex.finditer(absolut_file_name):
+		if (reg_exp_match != None):
+			o_substring = reg_exp_match.group(0)
+			if (len(o_substring) > 0):
+				o_second = o_substring[13:15]
+				o_minute = o_substring[11:13]
+				o_hour = o_substring[9:11]
+				o_day = o_substring[6:8]
+				o_month = o_substring[4:6]
+				o_year = o_substring[0:4]
+				try:
+					o_filename_datetime = datetime.datetime(int(o_year), int(o_month), int(o_day), int(o_hour), int(o_minute), int(o_second))
+				except Exception as e:
+					if (logger != None):
+						logger.error("The error thrown was {msg_e}".format(msg_e=e))
+					else:
+						raise e
+				if ((filename_datetime == None) or (o_filename_datetime < filename_datetime)):
+					filename_text = o_substring
+					filename_datetime = o_filename_datetime
+
+	# DDMMYYYY?hhmmss:
+	datetime_regex = re.compile(r'(0[1-9]|[1-2][0-9]|3[0-1])(0[1-9]|1[0-2])(19[7-9][0-9]|20[0-2][0-9])([\D])([0-1][0-9]|2[0-4])([0-5][0-9])([0-5][0-9])')
+	for reg_exp_match in datetime_regex.finditer(absolut_file_name):
+		if (reg_exp_match != None):
+			o_substring = reg_exp_match.group(0)
+			if (len(o_substring) > 0):
+				o_second = o_substring[13:15]
+				o_minute = o_substring[11:13]
+				o_hour = o_substring[9:11]
+				o_year = o_substring[4:8]
+				o_month = o_substring[2:4]
+				o_day = o_substring[0:2]
+				try:
+					o_filename_datetime = datetime.datetime(int(o_year), int(o_month), int(o_day), int(o_hour), int(o_minute), int(o_second))
+				except Exception as e:
+					if (logger != None):
+						logger.error("The error thrown was {msg_e}".format(msg_e=e))
+					else:
+						raise e
+				if ((filename_datetime == None) or (o_filename_datetime < filename_datetime)):
+					filename_text = o_substring
+					filename_datetime = o_filename_datetime
+
+	# DD?MM?YYYY?hh?mm?ss:
+	datetime_regex = re.compile(r'(0[1-9]|[1-2][0-9]|3[0-1])(\D)(0[1-9]|1[0-2])(\D)(19[7-9][0-9]|20[0-2][0-9])(\D)([0-1][0-9]|2[0-4])(\D)([0-5][0-9])(\D)([0-5][0-9])')
+	for reg_exp_match in datetime_regex.finditer(absolut_file_name):
+		if (reg_exp_match != None):
+			o_substring = reg_exp_match.group(0)
+			if (len(o_substring) > 0):
+				o_second = o_substring[17:19]
+				o_minute = o_substring[14:16]
+				o_hour = o_substring[11:13]
+				o_year = o_substring[6:10]
+				o_month = o_substring[3:5]
+				o_day = o_substring[0:2]
+				print('===>>> RegEx: ' + o_substring + ', Year: '+ o_year + ', Month: ' + o_month + ', Day: ' + o_day)
+				try:
+					o_filename_datetime = datetime.datetime(int(o_year), int(o_month), int(o_day), int(o_hour), int(o_minute), int(o_second))
+				except Exception as e:
+					if (logger != None):
+						logger.error("The error thrown was {msg_e}".format(msg_e=e))
+					else:
+						raise e
+				if ((filename_datetime == None) or (o_filename_datetime < filename_datetime)):
+					filename_text = o_substring
+					filename_datetime = o_filename_datetime
+
+	return filename_datetime, filename_text
+
+#----------------------------------------------------------------------------------------------#
+def get_new_absolut_path(file_date: datetime, folders_mask: str,  destination_dir: str, logger: logging.Logger = None) -> str:
 	new_dir_destination = None
 	new_subdir_date = None
 	absolute_destination_dir = None
@@ -164,14 +278,17 @@ def get_new_absolut_path(logger: logging.Logger, file_date: datetime, folders_ma
 
 #----------------------------------------------------------------------------------------------#
 # Reference: https://www.freecodecamp.org/news/how-to-substring-a-string-in-python/
-def get_new_file_name(logger: logging.Logger, file_date: DateTime, actual_file_name: str, prefix_file_mask: str, substring_remocao: str) -> str:
-	new_file_name = None
+def get_new_file_name(file_date: DateTime = None, actual_file_name: str = '', prefix_file_mask: str = '', substring_remocao: str = '') -> str:
+	new_file_name: str = ''
+	tmp_file_name: str = ''
+	quantidade_de_pontos: int = 0
 
-	quantidade_de_pontos = 0
 	tmp_file_name = actual_file_name
 
 	if (len(substring_remocao) > 0):
 		tmp_file_name = actual_file_name.replace(substring_remocao, '')
+
+	tmp_file_name = tmp_file_name.strip()
 
 	quantidade_de_pontos = tmp_file_name[-5:].count('.')
 	if (quantidade_de_pontos == 1):
@@ -225,34 +342,83 @@ def get_new_file_name(logger: logging.Logger, file_date: DateTime, actual_file_n
 			new_file_name = file_date.strftime(prefix_file_mask) + '-' + tmp_file_name[-100:]
 		else:
 			new_file_name = file_date.strftime(prefix_file_mask) + '-' + tmp_file_name
-	else:
-		logger.error('It is not possible use date to prefix file name.')
 
 	return new_file_name
 
 #----------------------------------------------------------------------------------------------#
-# Reference: https://datagy.io/python-return-multiple-values/
+def get_move_status(complete_old_file_name: str = '', complete_new_file_name: str = '', logger: logging.Logger = None) -> int:
 
+	new_file_exist: bool = False
+	old_file_exist: bool = False
+
+	new_file_size:int = 0
+	old_file_size:int = 0
+
+	# 0 - Not exist both files, 1 - Only exist original/old, 2 - Only existe destination/new, 3 - Both files exist in different sizes, 4 - Both files in the same size
+	status_return:int = 0
+
+	try:
+
+		if (os.path.exists(complete_new_file_name)):
+			new_file_exist = True
+			new_file_size = os.path.getsize(complete_new_file_name)
+
+		if (os.path.exists(complete_old_file_name)):
+			old_file_exist = True
+			old_file_size = os.path.getsize(complete_old_file_name)
+
+	except Exception as e:
+		if (logger != None):
+			logger.error('The error thrown was {err_msg}'.format(err_msg=e))
+		else:
+			raise e
+
+	if ((old_file_exist) and (logger != None)):
+		logger.debug('Size of old/original file: ' + str(old_file_size))
+
+	if ((new_file_exist) and (logger != None)):
+		logger.debug('Size of new/destination file: ' + str(new_file_size))
+
+	if (old_file_exist):
+		if (new_file_exist):
+			if ((old_file_size) == (new_file_size)):
+				status_return = 4 # Both files in the same size
+			else:
+				status_return = 3 # Both files exist in different sizes
+		else:
+			status_return = 1 # Only exist original/old
+	else:
+		if (new_file_exist):
+			status_return = 2 # Only existe destination/new
+		else:
+			status_return = 2 # Not exist both files
+
+	return status_return
+
+'''
+#----------------------------------------------------------------------------------------------#
+# MAIN: #
 #----------------------------------------------------------------------------------------------#
 # Reference: https://stackoverflow.com/questions/2909975/python-list-directory-subdirectory-and-files#2909998
 # Reference: https://docs.python.org/3/library/datetime.html
 # Reference: https://pynative.com/python-datetime-format-strftime/
 # Reference: https://code-paper.com/python/examples-python-datetime-convert-float-to-date
+'''
 def main():
 
 	# Obtain parameters from the system call:
-	files_orign = args.files_orign
-	files_destination = args.files_destination
-	folders = args.folders
-	files_prefix = args.files_prefix
-	batch_quantity_files = args.batch_quantity_files
-	exif_min_year_discart_date = args.exif_min_year_discart_date
-	generate_folder_sufix = args.generate_folder_sufix
-	min_size_escape_low_resolution = args.min_size_escape_low_resolution
-	rename_file = args.rename_file
-	timestamp_log = args.timestamp_log
+	files_orign: str = args.files_orign
+	files_destination: str = args.files_destination
+	folders: str = args.folders
+	files_prefix: str = args.files_prefix
+	batch_quantity_files: int = args.batch_quantity_files
+	exif_min_year_discart_date: int = args.exif_min_year_discart_date
+	min_size_escape_low_resolution: int = args.min_size_escape_low_resolution
+	generate_folder_sufix: bool = args.generate_folder_sufix
+	rename_file: bool = args.rename_file
+	timestamp_log: bool = args.timestamp_log
 
-	logger = log_inicialization(timestamp_log)
+	logger: logging.Logger = log_inicialization(timestamp_log)
 
 	logger.info('---------- << pyPhotosOrganizeTPV >> ----------')
 
@@ -260,8 +426,10 @@ def main():
 
 	now = datetime.datetime.now()
 	logger.debug('------ Arguments / Parameters:')
-	logger.debug('Files Orign (INPUT): ' + files_orign)
-	logger.debug('Files Destination (OUTPUT): ' + files_destination)
+	logger.debug('Files Orign (INPUT parameter):')
+	logger.debug(files_orign)
+	logger.debug('Files Destination (OUTPUT parameter):')
+	logger.debug(files_destination)
 	logger.debug('Folders mask: '+ folders)
 	logger.debug('Files prefix mask: '+ files_prefix)
 	
@@ -269,11 +437,12 @@ def main():
 	logger.debug('Showing datetime in folder format: ' +  now.strftime(folders))
 	logger.debug('Showing datetime in prefix format: ' + now.strftime(files_prefix))
 
-	counter_files_processed = 0
-	counter_files_on_destination = 0
+	logger.debug('------ Starting file process...')
 
-	file_name = ''
-	file_name_absolut = ''
+	counter_files_processed: int = 0
+	counter_files_on_destination: int = 0
+	file_name: str = ''
+	file_name_absolut: str = ''
 
 	if (batch_quantity_files > 0):
 		msg_max_file_processed = ' to maximum '+ str(batch_quantity_files) +' files...'
@@ -291,26 +460,21 @@ def main():
 				counter_files_processed = counter_files_processed + 1
 
 				if ((batch_quantity_files == 0) or (counter_files_processed <= batch_quantity_files)):
+
 					logger.info('--- Processing file #' + str(counter_files_processed) + msg_max_file_processed)
-					logger.info('Absolut file name: ' + file_name_absolut)
-					file_datetime_type = None
+					logger.info('Absolut file name:')
+					logger.info(file_name_absolut)
 
-
-					'''
-					dir_image_year = '0000'
-					dir_image_month = '00'
-					dir_image_sufix = 'others'
-					date_dir_destination = datetime.date(int('1977'), int('08'), int('17'))
-					dir_destination = date_dir_destination.strftime(folders)
-					new_file_name = ''
-					'''
-					exif_utilizado = ''
+					file_datetime_type: str = ''
+					exif_utilizado: str = ''
+					filename_datetime_text: str = ''
+					dir_image_sufix: str = ''
+					dir_destination: str = ''
+					file_datetime_stamp: datetime = None
 
 					#----------------------------------------------------------------------#
 					# Reading date from Filesystem:
-					filesystem_file_datetime = None
-					file_datetime_stamp = None
-
+					filesystem_file_datetime:datetime = None
 					filesystem_file_datetime = get_filesystem_datetime(logger, file_name_absolut)
 
 					if (filesystem_file_datetime != None):
@@ -326,73 +490,18 @@ def main():
 
 					#----------------------------------------------------------------------#
 					# Reading date information from file name using RegEx:
-					# Reference: https://github.com/excellentsport/picOrganizer
-					# Reference: https://regexland.com/regex-dates/
+					filename_file_datetime: datetime = None
+					filename_file_datetime, filename_datetime_text = get_filename_datetime(file_name_absolut, logger)
 
-					# YYYY-MM-DD-HH-MM-SS:
-					datetime_regex = re.compile(r'(19[7-9][0-9]|20[0-2][0-9])([-_])(0[1-9]|1[0-2])([-_])(0[1-9]|[1-2][0-9]|3[0-1])([-_])([0-1][0-9]|2[0-4])([-_])([0-5][0-9])([-_])([0-5][0-9])')
-					regex_match = datetime_regex.search(file_name_absolut)
-					if not(regex_match is None):
-						dir_image_second = regex_match.group()[17:19]
-						dir_image_minute = regex_match.group()[14:16]
-						dir_image_hour = regex_match.group()[11:13]
-						dir_image_day = regex_match.group()[8:10]
-						dir_image_month = regex_match.group()[5:7]
-						dir_image_year = regex_match.group()[0:4]
-						#logger.info('lilas - RegEx: ' + regex_match.group() + ', Year: '+ dir_image_year + ', Month: ' + dir_image_month + ', Day: ' + dir_image_day)
-						date_dir_destination = datetime.datetime(int(dir_image_year), int(dir_image_month), int(dir_image_day), int(dir_image_hour), int(dir_image_minute), int(dir_image_second))
-						#logger.info('lilas - RegEx: ' + regex_match.group() + ', Year: '+ dir_image_year + ', Month: ' + dir_image_month + ', Day: ' + dir_image_day)
-					else:
-						# YYYYMMDD_HHMMSS:
-						datetime_regex = re.compile(r'(19[7-9][0-9]|20[0-2][0-9])(0[1-9]|1[0-2])(0[1-9]|[1-2][0-9]|3[0-1])([-_])([0-1][0-9]|2[0-4])([0-5][0-9])([0-5][0-9])')
-						regex_match = datetime_regex.search(file_name_absolut)
-						if not(regex_match is None):
-							dir_image_second = regex_match.group()[13:15]
-							dir_image_minute = regex_match.group()[11:13]
-							dir_image_hour = regex_match.group()[9:11]
-							dir_image_day = regex_match.group()[6:8]
-							dir_image_month = regex_match.group()[4:6]
-							dir_image_year = regex_match.group()[0:4]
-							date_dir_destination = datetime.datetime(int(dir_image_year), int(dir_image_month), int(dir_image_day), int(dir_image_hour), int(dir_image_minute), int(dir_image_second))
-							#logger.info('rosa - RegEx: ' + regex_match.group() + ', Year: '+ dir_image_year + ', Month: ' + dir_image_month + ', Day: ' + dir_image_day)
+					if (filename_file_datetime != None):
+						logger.debug('File name datetime stamp: ' + str(filename_file_datetime))
+						if ((file_datetime_stamp == None) or (file_datetime_stamp > filename_file_datetime)):
+							file_datetime_type = 'FILENAME'
+							file_datetime_stamp = filename_file_datetime
 						else:
-							# YYYYMMDD, YYYY_MM_DD, YYYY-MM-DD:
-							datetime_regex = re.compile(r'(19[7-9][0-9]|20[0-2][0-9])([-_]?)(0[1-9]|1[0-2])([-_]?)(0[1-9]|[1-2][0-9]|3[0-1])')
-							regex_match = datetime_regex.search(file_name_absolut)
-							if not(regex_match is None):
-								dir_image_day = regex_match.group()[-2:]
-								if (len(regex_match.group())>8):
-									dir_image_month = regex_match.group()[5:7]
-								else:
-									dir_image_month = regex_match.group()[4:6]
-								dir_image_year = regex_match.group()[0:4]
-								date_dir_destination = datetime.date(int(dir_image_year), int(dir_image_month), int(dir_image_day))
-								#logger.info('verde - RegEx: ' + regex_match.group() + ', Year: '+ dir_image_year + ', Month: ' + dir_image_month + ', Day: ' + dir_image_day)
-							else:
-								# DDMMYYYY, DD_MM_YYYY, DD-MM-YYYY:
-								datetime_regex = re.compile(r'(0[1-9]|[1-2][0-9]|3[0-1])([-_]?)(0[1-9]|1[0-2])([-_]?)(19[7-9][0-9]|20[0-2][0-9])')
-								regex_match = datetime_regex.search(file_name_absolut)
-								if not(regex_match is None):
-									dir_image_day = regex_match.group()[0:2]
-									if (len(regex_match.group())>8):
-										dir_image_month = regex_match.group()[2:4]
-									else:
-										dir_image_month = regex_match.group()[3:5]
-									dir_image_year = regex_match.group()[-4]
-									date_dir_destination = datetime.date(int(dir_image_year), int(dir_image_month), int(dir_image_day))
-									#logger.info('azul - RegEx: ' + regex_match.group() + ', Year: '+ dir_image_year + ', Month: ' + dir_image_month + ', Day: ' + dir_image_day)
-					if ( dir_image_year != '0000'):
-						dir_destination = date_dir_destination.strftime(folders)
-						if (rename_file == False):
-							new_file_name = file_name
-						else:
-							if (len(file_name)>100):
-								new_file_name = date_dir_destination.strftime(files_prefix) + '-' + file_name[-100:]
-							else:
-								new_file_name = date_dir_destination.strftime(files_prefix) + '-' + file_name
-						logger.debug('File name date: ' + str(date_dir_destination))
+							logger.debug('Ignoring [FILENAME], using [' + file_datetime_type + ']...')
 					else:
-						logger.debug('No date from file name!')
+						logger.debug('No datetime from filename!')
 
 					#----------------------------------------------------------------------#
 					# Reading EXIF date information:
@@ -462,6 +571,7 @@ def main():
 						if (rename_file == False):
 							new_file_name = file_name
 						else:
+							new_file_name = file_name.lower().strip()
 							if (len(file_name)>100):
 								new_file_name = date_dir_destination.strftime(files_prefix) + '-' + file_name[-100:]
 							else:
@@ -486,12 +596,19 @@ def main():
 					new_file_name = None
 					new_absolut_file_name = None
 
-					substring_remocao = ''
+					substring_remocao: str = ''
 
-					new_absolut_path = get_new_absolut_path(logger, file_datetime_stamp, folders, files_destination)
+					print('====> filename_datetime_text: ' + filename_datetime_text)
+
+					if (file_datetime_type == 'FILENAME'):
+						substring_remocao = filename_datetime_text
+
+					print('====> substring_remocao: ' + substring_remocao)
+
+					new_absolut_path = get_new_absolut_path(logger = logger, file_date = file_datetime_stamp, folders_mask = folders, destination_dir = files_destination)
 
 					if (rename_file):
-						new_file_name = get_new_file_name(logger, file_datetime_stamp, file_name, files_prefix, substring_remocao)
+						new_file_name = get_new_file_name(file_datetime_stamp, file_name, files_prefix, substring_remocao)
 					else:
 						new_file_name = file_name
 
@@ -548,19 +665,21 @@ def main():
 						os.makedirs(new_file_dir)
 
 					arquivo_movido = False
+					arquivo_copiado = False
 
 					if os.path.exists(complete_path_new_file):
-						counter_files_on_destination = counter_files_on_destination + 1
 						try:
 							logger.debug('Tamanho origem: ' + str(os.path.getsize(file_name_absolut)))
 							logger.debug('Tamanho destino: ' + str(os.path.getsize(complete_path_new_file)))
 							if (os.path.getsize(file_name_absolut) == os.path.getsize(complete_path_new_file)):
+								counter_files_on_destination = counter_files_on_destination + 1
+								'''
 								try:
 									os.unlink(file_name_absolut)
 									arquivo_movido = True
 								except WindowsError as e:
-									logger.error("The error thrown was {e}".format(e=e))
-									'''
+									logger.info('Erro 0004')
+									#logger.error("The error thrown was {e}".format(e=e))
 									if (os.path.getsize(file_name_absolut) == os.path.getsize(complete_path_new_file)):
 										logger.info('Esperando 10s...')
 										time.sleep(1)
@@ -569,28 +688,30 @@ def main():
 											arquivo_movido = True
 										except WindowsError as e:
 											logger.error("The error thrown was {e}".format(e=e))
-									'''
-						except WindowsError as e:
+								'''
+						except Exception as e:
 							logger.error("The error thrown was {e}".format(e=e))
 
+					'''
 					if (arquivo_movido == False):
 						try:
 							shutil.move(file_name_absolut, complete_path_new_file)
 							arquivo_movido = True
 							logger.info('Image was moved.')
-						except WindowsError as e:
-							logger.error("There was an error copying {picture} to {target}".format(picture=file_name_absolut,target=complete_path_new_file))
-							logger.error("The error thrown was {e}".format(e=e))
-						except PermissionError:
-							logger.error('Error trying to rename file.')
+						except Exception as e:
+							logger.info('Erro 0002')
+							#logger.error("There was an error copying {picture} to {target}".format(picture=file_name_absolut,target=complete_path_new_file))
+							#logger.error("The error thrown was {e}".format(e=e))
 
 					if (arquivo_movido == False):
 						try:
 							os.rename(file_name_absolut, complete_path_new_file)
 							arquivo_movido = True
 							logger.info('Image was renamed.')
-						except PermissionError:
-							logger.error('Error trying to rename file.')
+						except Exception as e:
+							logger.info('Erro 0001')
+							#logger.error("The error thrown was {e}".format(e=e))
+					'''
 
 					'''
 					if (arquivo_movido == False):
@@ -603,16 +724,15 @@ def main():
 							logger.error('Error trying to rename file.')
 					'''
 
+					'''
 					if (arquivo_movido == False):
-						logger.debug('Tamanho origem: ' + str(os.path.getsize(file_name_absolut)))
-						logger.debug('Tamanho destino: ' + str(os.path.getsize(complete_path_new_file)))
 						if (os.path.getsize(file_name_absolut) == os.path.getsize(complete_path_new_file)):
 							try:
-								os.remove(file_name_absolut)
-							except WindowsError as e:
+								#os.remove(file_name_absolut)
+								os.system('move /y "{origem}" "{destino}"'.format(origem=file_name_absolut, destino=complete_path_new_file))
+							except Exception as e:
 								logger.error("The error thrown was {e}".format(e=e))
-							except PermissionError:
-								logger.error('Error trying to rename file.')
+					'''
 
 				else:
 					logger.debug('File ignored - batch limit: ' + str(batch_quantity_files) + ' - file ' + str(file_name_absolut))
