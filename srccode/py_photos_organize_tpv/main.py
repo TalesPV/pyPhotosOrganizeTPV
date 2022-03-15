@@ -22,10 +22,9 @@ import datetime
 import time
 import shutil
 import logging
-import coloredlogs
 import piexif
 import argparse
-import exifread
+#import exifread
 
 from xmlrpc.client import Boolean, DateTime
 from PIL import Image
@@ -33,7 +32,11 @@ from PIL.ExifTags import TAGS, GPSTAGS
 
 from asyncio import exceptions
 from pickle import FALSE
-from GPSPhoto import gpsphoto
+#from GPSPhoto import gpsphoto
+
+# Configuire Colored Logs:
+
+import coloredlogs
 
 # Obtain parameters from the system call:
 
@@ -43,8 +46,9 @@ parser.add_argument('-o', '--files_orign', type=str, required=False, default='.\
 parser.add_argument('-d', '--files_destination', type=str, required=False, default='.\\resources\\output_files\\')
 parser.add_argument('-f', '--folders', type=str, required=False, default='%Y_%m')
 parser.add_argument('-p', '--files_prefix', type=str, required=False, default='%Y_%m_%d_%Hh%Mm%Ss')
+parser.add_argument('-w', '--overwrite', type=str, required=False, default='d')
 parser.add_argument('-q', '--batch_quantity_files', type=int, required=False, default=0)
-parser.add_argument('-y', '--exif_min_year_discart_date', type=int, required=False, default=1990)
+parser.add_argument('-y', '--exif_min_year_discart_date', type=int, required=False, default=1980)
 parser.add_argument('-s', '--min_size_escape_low_resolution', type=int, required=False, default=200000)
 parser.add_argument('-g', '--generate_folder_sufix', type=bool, required=False, default=True)
 parser.add_argument('-n', '--rename_file', type=bool, required=False, default=True)
@@ -53,8 +57,8 @@ parser.add_argument('-l', '--timestamp_log', type=bool, required=False, default=
 args = parser.parse_args()
 
 # Version:
-PROJECT_VERSION = '1.0.0.20220313000000'
-PROJECT_DOING = 'Refectoring to functions.'
+PROJECT_VERSION = '1.0.0.20220315000400'
+PROJECT_DOING = 'Getting GPS information.'
 
 # Define extensions to be processed and to obtain metadata:
 IMAGE_EXTENSIONS = ('.png', '.jpeg', '.jpg', '.gif', '.bmp', '.tif')
@@ -64,11 +68,130 @@ OTHER_EXTENSIONS = ('.pdf', )
 ALL_EXTENSIONS = IMAGE_EXTENSIONS + VIDEO_EXTENSIONS + MSOFFICE_EXTENSIONS + OTHER_EXTENSIONS
 
 
+#----------------------------------------------------------------------#
+# Reference: https://stackoverflow.com/questions/2909975/python-list-directory-subdirectory-and-files#2909998
+def tpv_move_file(file_name_absolut: str = '', new_absolut_file_name: str = '', overwrite_option: str = 'd', logger: logging.Logger = None) -> tuple:
+	original_file_size:int = 0
+	destination_file_size:int = 0
+	rindex_dot: int = 0
+	file_name_counter: int = 0
+	now: datetime = None
+	sufix_dup_file: str = ''
+	new_absolut_file_name_used: str = ''
+	invalid_name: bool = True
+	file_was_on_destiny:bool = False
+	file_was_on_destiny = False
+	new_absolut_file_name_used = new_absolut_file_name
+	if os.path.exists(new_absolut_file_name):
+		file_was_on_destiny = True
+		if (logger is not None):
+			logger.warning('File exist on destination!')
+			logger.warning('Original:')
+			logger.warning(file_name_absolut)
+			logger.warning('Destination:')
+			logger.warning(new_absolut_file_name)
+		try:
+			original_file_size = os.path.getsize(file_name_absolut)
+			destination_file_size = os.path.getsize(new_absolut_file_name)
+		except Exception as e:
+			if (logger is not None):
+				logger.error('Error 20220315023600 obtain files size: {err_msg}'.format(err_msg=e))
+			else:
+				raise e
+
+		if (logger is not None):
+			logger.debug('Tamanho origem: ' + str(original_file_size))
+			logger.debug('Tamanho destino: ' + str(destination_file_size))
+
+		if (overwrite_option == 'i'):
+			new_absolut_file_name_used = ''
+			# Ignoring duplicate files (keep original and destination it was existing):
+			if (logger is not None):
+				logger.info('Ignoring file!')
+		else:
+			new_absolut_file_name_used = new_absolut_file_name
+			if ((overwrite_option == 'd') or (original_file_size != destination_file_size)):
+				# Duplicate option or files with differente size:
+				invalid_name = True
+				file_name_counter = 100
+				while (invalid_name):
+					now = datetime.datetime.now()
+					sufix_dup_file = now.strftime('%Y%m%d%H%M%S{file_name_counter}'.format(file_name_counter = file_name_counter))
+					rindex_dot = new_absolut_file_name.rindex('.')
+					new_absolut_file_name_used = new_absolut_file_name[0:rindex_dot] + '-' + sufix_dup_file + new_absolut_file_name[rindex_dot:]
+					invalid_name = os.path.exists(new_absolut_file_name_used)
+					if (not invalid_name):
+						if (logger is not None):
+							logger.warning('New file name to duplicate:')
+							logger.warning(new_absolut_file_name_used)
+					else:
+						file_name_counter = file_name_counter + 1
+
+	if ((not(file_was_on_destiny)) or (overwrite_option != 'i')):
+		# Overwriting or Duplicating:
+		try:
+			shutil.move(file_name_absolut, new_absolut_file_name_used)
+			#os.rename(file_name_absolut, new_absolut_file_name_used)
+			#os.link(file_name_absolut, new_absolut_file_name_used)
+			#os.unlink(file_name_absolut)
+		except Exception as e:
+			if (logger is not None):
+				logger.error('Error 20200315030200 moving file do destination: {err_msg}'.format(err_msg=e))
+			else:
+				raise e
+
+	del(original_file_size)
+	del(destination_file_size)
+	del(rindex_dot)
+	del(file_name_counter)
+	del(now)
+	del(sufix_dup_file)
+	del(invalid_name)
+	return(file_was_on_destiny, new_absolut_file_name_used)
+
+#----------------------------------------------------------------------#
+# Reading Geodata information:
+# Reference: https://towardsdatascience.com/grabbing-geodata-from-your-photos-library-using-python-60eb0462e147
+# Reference: https://sylvaindurand.org/gps-data-from-photos-with-python/
+# Reference: https://pypi.org/project/gpsphoto/
+# Reference: https://medium.com/spatial-data-science/how-to-extract-gps-coordinates-from-images-in-python-e66e542af354
+# Reference: https://stackoverflow.com/questions/19804768/interpreting-gps-info-of-exif-data-from-photo-in-python
+def get_geodata_exif(absolut_file_name: str = '', logger: logging.Logger = None) -> str:
+
+	#TODO: GEOTAG!
+
+	'''
+	o_latitude: float = 0.00
+	o_longitude: float = 0.00
+	latitude: int = 0
+	longitude: int = 0
+
+	try:
+		image = Image.open(file_name_absolut)
+		exif_dict = piexif.load(image.info['exif'])
+	except Exception as e:
+		if (logger is not None):
+			logger.error("Error 20220313062100 to get metadata EXIF: {msg_e}".format(msg_e=e))
+		else:
+			raise e
+	if (len(exif_dict["Exif"]) > 0):
+		exif = image._getexif()
+		with open(file_name_absolut, 'rb') as f:
+			tags = exifread.process_file(f)
+			latitude = tags.get('GPS GPSLatitude')
+			latitude_ref = tags.get('GPS GPSLatitudeRef')
+			longitude = tags.get('GPS GPSLongitude')
+			longitude_ref = tags.get('GPS GPSLongitudeRef')
+			print('latitude {lat_value}, and longitude {lon_value}'.format(lat_value = latitude_ref, lon_value = longitude_ref))
+	'''
+	return('')
+
 #----------------------------------------------------------------------------------------------#
 # Reference: https://pypi.org/project/coloredlogs/
 def log_inicialization(log_with_timestamp: Boolean = False) -> logging.Logger:
 
 	log_file_name: str = ''
+	logger: logging.Logger = None
 
 	if (platform.system() == 'Windows'):
 		if (log_with_timestamp):
@@ -101,7 +224,8 @@ def log_inicialization(log_with_timestamp: Boolean = False) -> logging.Logger:
 		fmt='%(asctime)s,%(msecs)03d %(levelname)s %(message)s' 
 	)
 
-	return logger
+	del(log_file_name)
+	return(logger)
 
 #----------------------------------------------------------------------------------------------#
 # Reference: https://stackoverflow.com/questions/237079/how-to-get-file-creation-and-modification-date-times
@@ -109,6 +233,7 @@ def log_inicialization(log_with_timestamp: Boolean = False) -> logging.Logger:
 def get_filesystem_datetime(absolut_file_name: str = '', logger: logging.Logger = None) -> datetime:
 	filesystem_datetime_create: float = 0.00
 	filesystem_datetime: float = 0.00
+	file_stats: os.stat_result = None
 	datetime_filesystem: datetime = None
 
 	if (len(absolut_file_name) > 1):
@@ -118,60 +243,62 @@ def get_filesystem_datetime(absolut_file_name: str = '', logger: logging.Logger 
 				try:
 					filesystem_datetime = min(filesystem_datetime_create, os.path.getatime(absolut_file_name), os.path.getmtime(absolut_file_name))
 				except Exception as e:
-					if (logger != None):
+					if (logger is not None):
 						logger.error("Error 20220313033001 getting file system dates on Windows: {msg_e}".format(msg_e = e))
 					else:
 						raise e
 			except Exception as e:
-				if (logger != None):
+				if (logger is not None):
 					logger.error("Error 20220313033100 getting file creation date on Windows: {msg_e}".format(msg_e = e))
 				else:
 					raise e
 		else:
 			try:
-				stats = os.stat(absolut_file_name)
-				filesystem_datetime_create = min(stats.st_birthtime)
+				file_stats = os.stat(absolut_file_name)
+				filesystem_datetime_create = min(file_stats.st_birthtime)
 				try:
-					filesystem_datetime = min(filesystem_datetime_create, stats.st_mtime, stats.st_ctime)
+					filesystem_datetime = min(filesystem_datetime_create, file_stats.st_mtime, file_stats.st_ctime)
 				except Exception as e:
-					if (logger != None):
+					if (logger is not None):
 						logger.error("Error 20220313033101 getting file system dates: {msg_e}".format(msg_e = e))
 					else:
 						raise e
 			except Exception as e:
-				if (logger != None):
+				if (logger is not None):
 					logger.error("Error 20220313033200 getting file creation date: {msg_e}".format(msg_e = e))
 				else:
 					raise e
 
-		if (filesystem_datetime != None):
+		if (filesystem_datetime is not None):
 			datetime_filesystem = datetime.datetime.fromtimestamp(filesystem_datetime)
 		else:
-			if (filesystem_datetime_create != None):
+			if (filesystem_datetime_create is not None):
 				datetime_filesystem = datetime.datetime.fromtimestamp(filesystem_datetime_create)
 			else:
 				datetime_filesystem = None
 
-	return datetime_filesystem
-
+	del(filesystem_datetime_create)
+	del(filesystem_datetime)
+	del(file_stats)
+	return(datetime_filesystem)
 
 #----------------------------------------------------------------------#
 # Reading EXIF date information:
 # Reference: https://orthallelous.wordpress.com/2015/04/19/extracting-date-and-time-from-images-with-python/
 # Reference: https://github.com/vitords/sort-images/blob/master/sort_images.py
 def get_metadata_datetime(absolut_file_name: str = '', logger: logging.Logger = None) -> datetime:
+	image_file: Image = None
 	exif_dict = {}
 	exif_dict["0th"] = {}
 	exif_dict["Exif"] = {}
-
-	datetime_metadata: datetime = None
 	tmp_datetime_obtido: datetime = None
+	datetime_metadata: datetime = None
 
 	try:
-		image = Image.open(absolut_file_name)
-		exif_dict = piexif.load(image.info['exif'])
+		image_file = Image.open(absolut_file_name)
+		exif_dict = piexif.load(image_file.info['exif'])
 	except Exception as e:
-		if (logger != None):
+		if (logger is not None):
 			logger.error("Error 20220313062100 to get metadata EXIF: {msg_e}".format(msg_e=e))
 		else:
 			raise e
@@ -180,27 +307,26 @@ def get_metadata_datetime(absolut_file_name: str = '', logger: logging.Logger = 
 
 		exif_information = ''
 		try:
-			exif_information = image._getexif()[36867]
+			exif_information = image_file._getexif()[36867]
 		except Exception as e:
-			if (logger != None):
+			if (logger is not None):
 				logger.error("Error 20220313062300 to get metadata EXIF 36867: {msg_e}".format(msg_e=e))
 			else:
 				raise e
-
 		if (exif_information != ''):
 			datetime_metadata = datetime.datetime.strptime(str(exif_information), '%Y:%m:%d %H:%M:%S')
 
+		exif_information = ''
 		try:
-			exif_information = image._getexif()[36868]
+			exif_information = image_file._getexif()[36868]
 		except Exception as e:
-			if (logger != None):
+			if (logger is not None):
 				logger.error("Error 20220313062600 to get metadata EXIF 36868: {msg_e}".format(msg_e=e))
 			else:
 				raise e
-
 		if (exif_information != ''):
 			tmp_datetime_obtido = datetime.datetime.strptime(exif_information, '%Y:%m:%d %H:%M:%S')
-			if ((tmp_datetime_obtido == None) or (tmp_datetime_obtido < datetime_metadata)):
+			if ((datetime_metadata == None) or (tmp_datetime_obtido < datetime_metadata)):
 				datetime_metadata = tmp_datetime_obtido
 
 	if (len(exif_dict["0th"]) > 0):
@@ -209,16 +335,20 @@ def get_metadata_datetime(absolut_file_name: str = '', logger: logging.Logger = 
 		try:
 			exif_information = str(exif_dict["0th"][306])
 		except Exception as e:
-			if (logger != None):
+			if (logger is not None):
 				logger.error("Error 20220313063300 to get metadata EXIF 0TH306: {msg_e}".format(msg_e=e))
 			else:
 				raise e
-
 		if (exif_information != ''):
 			tmp_datetime_obtido = datetime.datetime.strptime(exif_information[2:21], '%Y:%m:%d %H:%M:%S')
-			if ((tmp_datetime_obtido == None) or (tmp_datetime_obtido < datetime_metadata)):
+			if ((datetime_metadata == None) or (tmp_datetime_obtido < datetime_metadata)):
 				datetime_metadata = tmp_datetime_obtido
 
+	del(exif_dict["0th"])
+	del(exif_dict["Exif"])
+	del(exif_dict)
+	del(image_file)
+	del(tmp_datetime_obtido)
 	return datetime_metadata
 
 #----------------------------------------------------------------------------------------------#
@@ -227,11 +357,6 @@ def get_metadata_datetime(absolut_file_name: str = '', logger: logging.Logger = 
 # Reference: https://regexland.com/regex-dates/
 # Reference: https://datagy.io/python-return-multiple-values/
 def get_filename_datetime(absolut_file_name: str = '', logger: logging.Logger = None) -> tuple:
-
-	filename_datetime: datetime = None
-	filename_text: string = ''
-
-	o_filename_datetime: datetime = None
 	o_substring: str = ''
 	o_second: str = ''
 	o_minute: str = ''
@@ -239,11 +364,16 @@ def get_filename_datetime(absolut_file_name: str = '', logger: logging.Logger = 
 	o_day: str = ''
 	o_month: str = ''
 	o_year: str = ''
+	o_filename_datetime: datetime = None
+	datetime_regex: Pattern = None
+	reg_exp_match = {}
+	filename_datetime: datetime = None
+	filename_text: string = ''
 
 	# YYYY?MM?DD?hh?mm?ss:
 	datetime_regex = re.compile(r'(19[7-9][0-9]|20[0-2][0-9])(\D)(0[1-9]|1[0-2])(\D)(0[1-9]|[1-2][0-9]|3[0-1])(\D)([0-1][0-9]|2[0-4])(\D)([0-5][0-9])(\D)([0-5][0-9])')
 	for reg_exp_match in datetime_regex.finditer(absolut_file_name):
-		if (reg_exp_match != None):
+		if (reg_exp_match is not None):
 			o_substring = reg_exp_match.group(0)
 			if (len(o_substring) > 0):
 				o_second = o_substring[17:19]
@@ -255,7 +385,7 @@ def get_filename_datetime(absolut_file_name: str = '', logger: logging.Logger = 
 				try:
 					o_filename_datetime = datetime.datetime(int(o_year), int(o_month), int(o_day), int(o_hour), int(o_minute), int(o_second))
 				except Exception as e:
-					if (logger != None):
+					if (logger is not None):
 						logger.error("Error 20220313033600 converting date founded using YYYY?MM?DD?hh?mm?ss: {msg_e}".format(msg_e=e))
 					else:
 						raise e
@@ -266,7 +396,7 @@ def get_filename_datetime(absolut_file_name: str = '', logger: logging.Logger = 
 	# YYYYMMDD?hhmmss:
 	datetime_regex = re.compile(r'(19[7-9][0-9]|20[0-2][0-9])(0[1-9]|1[0-2])(0[1-9]|[1-2][0-9]|3[0-1])([\D])([0-1][0-9]|2[0-4])([0-5][0-9])([0-5][0-9])')
 	for reg_exp_match in datetime_regex.finditer(absolut_file_name):
-		if (reg_exp_match != None):
+		if (reg_exp_match is not None):
 			o_substring = reg_exp_match.group(0)
 			if (len(o_substring) > 0):
 				o_second = o_substring[13:15]
@@ -278,7 +408,7 @@ def get_filename_datetime(absolut_file_name: str = '', logger: logging.Logger = 
 				try:
 					o_filename_datetime = datetime.datetime(int(o_year), int(o_month), int(o_day), int(o_hour), int(o_minute), int(o_second))
 				except Exception as e:
-					if (logger != None):
+					if (logger is not None):
 						logger.error("Error 20220313033700 converting date founded using YYYYMMDD?hhmmss: {msg_e}".format(msg_e=e))
 					else:
 						raise e
@@ -289,7 +419,7 @@ def get_filename_datetime(absolut_file_name: str = '', logger: logging.Logger = 
 	# YYYYMMDDhhmmss:
 	datetime_regex = re.compile(r'(19[7-9][0-9]|20[0-2][0-9])(0[1-9]|1[0-2])(0[1-9]|[1-2][0-9]|3[0-1])([0-1][0-9]|2[0-4])([0-5][0-9])([0-5][0-9])')
 	for reg_exp_match in datetime_regex.finditer(absolut_file_name):
-		if (reg_exp_match != None):
+		if (reg_exp_match is not None):
 			o_substring = reg_exp_match.group(0)
 			if (len(o_substring) > 0):
 				o_second = o_substring[12:14]
@@ -301,7 +431,7 @@ def get_filename_datetime(absolut_file_name: str = '', logger: logging.Logger = 
 				try:
 					o_filename_datetime = datetime.datetime(int(o_year), int(o_month), int(o_day), int(o_hour), int(o_minute), int(o_second))
 				except Exception as e:
-					if (logger != None):
+					if (logger is not None):
 						logger.error("Error 20220313033701 converting date founded using YYYYMMDDhhmmss: {msg_e}".format(msg_e=e))
 					else:
 						raise e
@@ -312,7 +442,7 @@ def get_filename_datetime(absolut_file_name: str = '', logger: logging.Logger = 
 	# DDMMYYYY?hhmmss:
 	datetime_regex = re.compile(r'(0[1-9]|[1-2][0-9]|3[0-1])(0[1-9]|1[0-2])(19[7-9][0-9]|20[0-2][0-9])([\D])([0-1][0-9]|2[0-4])([0-5][0-9])([0-5][0-9])')
 	for reg_exp_match in datetime_regex.finditer(absolut_file_name):
-		if (reg_exp_match != None):
+		if (reg_exp_match is not None):
 			o_substring = reg_exp_match.group(0)
 			if (len(o_substring) > 0):
 				o_second = o_substring[13:15]
@@ -324,7 +454,7 @@ def get_filename_datetime(absolut_file_name: str = '', logger: logging.Logger = 
 				try:
 					o_filename_datetime = datetime.datetime(int(o_year), int(o_month), int(o_day), int(o_hour), int(o_minute), int(o_second))
 				except Exception as e:
-					if (logger != None):
+					if (logger is not None):
 						logger.error("Error 20220313033702 converting date founded using DDMMYYYY?hhmmss: {msg_e}".format(msg_e=e))
 					else:
 						raise e
@@ -335,7 +465,7 @@ def get_filename_datetime(absolut_file_name: str = '', logger: logging.Logger = 
 	# DDMMYYYYhhmmss:
 	datetime_regex = re.compile(r'(0[1-9]|[1-2][0-9]|3[0-1])(0[1-9]|1[0-2])(19[7-9][0-9]|20[0-2][0-9])([0-1][0-9]|2[0-4])([0-5][0-9])([0-5][0-9])')
 	for reg_exp_match in datetime_regex.finditer(absolut_file_name):
-		if (reg_exp_match != None):
+		if (reg_exp_match is not None):
 			o_substring = reg_exp_match.group(0)
 			if (len(o_substring) > 0):
 				o_second = o_substring[12:14]
@@ -347,7 +477,7 @@ def get_filename_datetime(absolut_file_name: str = '', logger: logging.Logger = 
 				try:
 					o_filename_datetime = datetime.datetime(int(o_year), int(o_month), int(o_day), int(o_hour), int(o_minute), int(o_second))
 				except Exception as e:
-					if (logger != None):
+					if (logger is not None):
 						logger.error("Error 20220313033800 converting date founded using DDMMYYYYhhmmss: {msg_e}".format(msg_e=e))
 					else:
 						raise e
@@ -358,7 +488,7 @@ def get_filename_datetime(absolut_file_name: str = '', logger: logging.Logger = 
 	# DD?MM?YYYY?hh?mm?ss:
 	datetime_regex = re.compile(r'(0[1-9]|[1-2][0-9]|3[0-1])(\D)(0[1-9]|1[0-2])(\D)(19[7-9][0-9]|20[0-2][0-9])(\D)([0-1][0-9]|2[0-4])(\D)([0-5][0-9])(\D)([0-5][0-9])')
 	for reg_exp_match in datetime_regex.finditer(absolut_file_name):
-		if (reg_exp_match != None):
+		if (reg_exp_match is not None):
 			o_substring = reg_exp_match.group(0)
 			if (len(o_substring) > 0):
 				o_second = o_substring[17:19]
@@ -370,7 +500,7 @@ def get_filename_datetime(absolut_file_name: str = '', logger: logging.Logger = 
 				try:
 					o_filename_datetime = datetime.datetime(int(o_year), int(o_month), int(o_day), int(o_hour), int(o_minute), int(o_second))
 				except Exception as e:
-					if (logger != None):
+					if (logger is not None):
 						logger.error("Error 20220313033900 converting date founded using DD?MM?YYYY?hh?mm?ss: {msg_e}".format(msg_e=e))
 					else:
 						raise e
@@ -381,7 +511,7 @@ def get_filename_datetime(absolut_file_name: str = '', logger: logging.Logger = 
 	# MMDDYYYY?hhmmss:
 	datetime_regex = re.compile(r'(0[1-9]|1[0-2])(0[1-9]|[1-2][0-9]|3[0-1])(19[7-9][0-9]|20[0-2][0-9])([\D])([0-1][0-9]|2[0-4])([0-5][0-9])([0-5][0-9])')
 	for reg_exp_match in datetime_regex.finditer(absolut_file_name):
-		if (reg_exp_match != None):
+		if (reg_exp_match is not None):
 			o_substring = reg_exp_match.group(0)
 			if (len(o_substring) > 0):
 				o_second = o_substring[13:15]
@@ -393,7 +523,7 @@ def get_filename_datetime(absolut_file_name: str = '', logger: logging.Logger = 
 				try:
 					o_filename_datetime = datetime.datetime(int(o_year), int(o_month), int(o_day), int(o_hour), int(o_minute), int(o_second))
 				except Exception as e:
-					if (logger != None):
+					if (logger is not None):
 						logger.error("Error 20220313033901 converting date founded using MMDDYYYY?hhmmss: {msg_e}".format(msg_e=e))
 					else:
 						raise e
@@ -404,7 +534,7 @@ def get_filename_datetime(absolut_file_name: str = '', logger: logging.Logger = 
 	# MMDDYYYYhhmmss:
 	datetime_regex = re.compile(r'(0[1-9]|1[0-2])(0[1-9]|[1-2][0-9]|3[0-1])(19[7-9][0-9]|20[0-2][0-9])([0-1][0-9]|2[0-4])([0-5][0-9])([0-5][0-9])')
 	for reg_exp_match in datetime_regex.finditer(absolut_file_name):
-		if (reg_exp_match != None):
+		if (reg_exp_match is not None):
 			o_substring = reg_exp_match.group(0)
 			if (len(o_substring) > 0):
 				o_second = o_substring[12:14]
@@ -416,7 +546,7 @@ def get_filename_datetime(absolut_file_name: str = '', logger: logging.Logger = 
 				try:
 					o_filename_datetime = datetime.datetime(int(o_year), int(o_month), int(o_day), int(o_hour), int(o_minute), int(o_second))
 				except Exception as e:
-					if (logger != None):
+					if (logger is not None):
 						logger.error("Error 20220313033905 converting date founded using MMDDYYYYhhmmss: {msg_e}".format(msg_e=e))
 					else:
 						raise e
@@ -427,7 +557,7 @@ def get_filename_datetime(absolut_file_name: str = '', logger: logging.Logger = 
 	# MM?DD?YYYY?hh?mm?ss:
 	datetime_regex = re.compile(r'(0[1-9]|1[0-2])(\D)(0[1-9]|[1-2][0-9]|3[0-1])(\D)(19[7-9][0-9]|20[0-2][0-9])(\D)([0-1][0-9]|2[0-4])(\D)([0-5][0-9])(\D)([0-5][0-9])')
 	for reg_exp_match in datetime_regex.finditer(absolut_file_name):
-		if (reg_exp_match != None):
+		if (reg_exp_match is not None):
 			o_substring = reg_exp_match.group(0)
 			if (len(o_substring) > 0):
 				o_second = o_substring[17:19]
@@ -439,7 +569,7 @@ def get_filename_datetime(absolut_file_name: str = '', logger: logging.Logger = 
 				try:
 					o_filename_datetime = datetime.datetime(int(o_year), int(o_month), int(o_day), int(o_hour), int(o_minute), int(o_second))
 				except Exception as e:
-					if (logger != None):
+					if (logger is not None):
 						logger.error("Error 20220313034000 converting date founded using MM?DD?YYYY?hh?mm?ss: {msg_e}".format(msg_e=e))
 					else:
 						raise e
@@ -447,6 +577,16 @@ def get_filename_datetime(absolut_file_name: str = '', logger: logging.Logger = 
 					filename_text = o_substring
 					filename_datetime = o_filename_datetime
 
+	del(o_substring)
+	del(o_second)
+	del(o_minute)
+	del(o_hour)
+	del(o_day)
+	del(o_month)
+	del(o_year)
+	del(o_filename_datetime)
+	del(datetime_regex)
+	del(reg_exp_match)
 	return filename_datetime, filename_text
 
 #----------------------------------------------------------------------------------------------#
@@ -454,32 +594,32 @@ def get_filename_datetime(absolut_file_name: str = '', logger: logging.Logger = 
 # Reference: https://flaviocopes.com/python-get-file-details/
 def get_new_absolut_path(min_escape_low_resolution: int = 0, folder_sufix: bool = False, original_absolut_file_name: str = '', file_date: datetime = None, date_type: str = '', folders_mask: str = '',  destination_dir: str = '', logger: logging.Logger = None) -> str:
 	stats: os.stat_result = None
-	new_dir_destination: str = ''
 	new_subdir_date: str = ''
 	absolute_destination_dir: str = ''
 	dir_image_sufix: str = ''
 	file_name_absolut_size: int = 0
-
 	continue_execution: bool = True
+	new_dir_destination: str = ''
+
 
 	if ((folder_sufix) and ((original_absolut_file_name == None) or (len(original_absolut_file_name) < 1))):
 		continue_execution = False
-		if (logger != None):
+		if (logger is not None):
 			logger.warning("Warning 20220313053300 - It's configured folder sufix without original file name.")
 
 	if (file_date == None):
 		continue_execution = False
-		if (logger != None):
+		if (logger is not None):
 			logger.warning("Warning 20220313053500 - Datetime stamp not defined.")
 
 	if ((folders_mask == None) or (len(folders_mask) < 1)):
 		continue_execution = False
-		if (logger != None):
+		if (logger is not None):
 			logger.warning("Warning 20220313053600 - Folder mask not defined.")
 
 	if ((destination_dir == None) or (len(destination_dir) < 1)):
 		continue_execution = False
-		if (logger != None):
+		if (logger is not None):
 			logger.warning("Warning 20220313053700 - Destination folder defined.")
 	else:
 		absolute_destination_dir = os.path.abspath(destination_dir)
@@ -500,14 +640,12 @@ def get_new_absolut_path(min_escape_low_resolution: int = 0, folder_sufix: bool 
 			if (date_type == 'METADATA'):
 				dir_image_sufix = 'metadata'
 
-			if ('insta' in original_absolut_file_name.lower()):
-				dir_image_sufix = 'social_media'
-			if (('instagram' in original_absolut_file_name.lower()) or ('facebook' in original_absolut_file_name.lower())):
+			if (('scr' in original_absolut_file_name.lower()) or ('capture' in original_absolut_file_name.lower())):
+				dir_image_sufix = 'screen_capture'
+			if (('insta' in original_absolut_file_name.lower()) or ('facebook' in original_absolut_file_name.lower())):
 				dir_image_sufix = 'social_media'
 			if (('message' in original_absolut_file_name.lower()) or ('telegram' in original_absolut_file_name.lower()) or ('whats' in original_absolut_file_name.lower()) or ('instant' in original_absolut_file_name.lower())):
 				dir_image_sufix = 'instant_messages'
-			if (('screen' in original_absolut_file_name.lower()) or ('capture' in original_absolut_file_name.lower())):
-				dir_image_sufix = 'screen_capture'
 
 			#TODO: GEOTAG!
 
@@ -516,7 +654,7 @@ def get_new_absolut_path(min_escape_low_resolution: int = 0, folder_sufix: bool 
 					try:
 						file_name_absolut_size = os.path.getsize(original_absolut_file_name)
 					except Exception as e:
-						if (logger != None):
+						if (logger is not None):
 							logger.error("Error 20220313051100 getting file size on Windows: {msg_e}".format(msg_e=e))
 						else:
 							raise e
@@ -525,7 +663,7 @@ def get_new_absolut_path(min_escape_low_resolution: int = 0, folder_sufix: bool 
 						stats = os.stat(original_absolut_file_name)
 						file_name_absolut_size = stats.st_size
 					except Exception as e:
-						if (logger != None):
+						if (logger is not None):
 							logger.error("Error 20220313051200 getting file size: {msg_e}".format(msg_e=e))
 						else:
 							raise e
@@ -542,25 +680,31 @@ def get_new_absolut_path(min_escape_low_resolution: int = 0, folder_sufix: bool 
 		if (new_dir_destination[-1:] != '//'):
 			new_dir_destination = new_dir_destination + '//'
 
+	del(stats)
+	del(new_subdir_date)
+	del(absolute_destination_dir)
+	del(dir_image_sufix)
+	del(file_name_absolut_size)
+	del(continue_execution)
 	return new_dir_destination
 
 #----------------------------------------------------------------------------------------------#
 # Reference: https://www.freecodecamp.org/news/how-to-substring-a-string-in-python/
 def get_new_file_name(file_date: DateTime = None, actual_file_name: str = '', prefix_file_mask: str = '', substring_remocao: str = '') -> str:
-	new_file_name: str = ''
 	tmp_file_name: str = ''
-	quantidade_de_pontos: int = 0
+	rindex_dot: int = 0
+	new_file_name: str = ''
 
 	tmp_file_name = actual_file_name
 
 	if (len(substring_remocao) > 0):
-		tmp_file_name = actual_file_name.replace(substring_remocao, '')
+		tmp_file_name = actual_file_name.replace(substring_remocao+'s-', '')
+		tmp_file_name = tmp_file_name.replace(substring_remocao, '')
 
 	tmp_file_name = tmp_file_name.strip()
 
-	quantidade_de_pontos = tmp_file_name[-5:].count('.')
-	if (quantidade_de_pontos == 1):
-		tmp_file_name = tmp_file_name[0:-5].replace('.', '-') + tmp_file_name[-5:]
+	rindex_dot = tmp_file_name.rindex('.')
+	tmp_file_name = tmp_file_name[0:rindex_dot].replace('.', '-') + tmp_file_name[rindex_dot:]
 
 	tmp_file_name = tmp_file_name.replace('(', '-')
 	tmp_file_name = tmp_file_name.replace(')', '-')
@@ -605,20 +749,26 @@ def get_new_file_name(file_date: DateTime = None, actual_file_name: str = '', pr
 	tmp_file_name = tmp_file_name.replace('ü', 'u')
 	tmp_file_name = tmp_file_name.replace('û', 'u')
 
-	if (file_date != None):
-		if (len(tmp_file_name)>100):
-			new_file_name = file_date.strftime(prefix_file_mask) + '-' + tmp_file_name[-100:]
-		else:
-			new_file_name = file_date.strftime(prefix_file_mask) + '-' + tmp_file_name
+	if (file_date is not None):
+		new_file_name = file_date.strftime(prefix_file_mask)
+	else:
+		new_file_name = ''
 
-	return new_file_name
+	#TODO: GEOTAG!
+
+	if (len(tmp_file_name)>100):
+		new_file_name = new_file_name + '-' + tmp_file_name[-100:]
+	else:
+		new_file_name = new_file_name + '-' + tmp_file_name
+
+	del(tmp_file_name)
+	del(rindex_dot)
+	return(new_file_name)
 
 #----------------------------------------------------------------------------------------------#
 def get_move_status(complete_old_file_name: str = '', complete_new_file_name: str = '', logger: logging.Logger = None) -> int:
-
 	new_file_exist: bool = False
 	old_file_exist: bool = False
-
 	new_file_size:int = 0
 	old_file_size:int = 0
 
@@ -626,33 +776,19 @@ def get_move_status(complete_old_file_name: str = '', complete_new_file_name: st
 	status_return:int = 0
 
 	try:
-
 		if (os.path.exists(complete_new_file_name)):
 			new_file_exist = True
-			new_file_size = os.path.getsize(complete_new_file_name)
-
 		if (os.path.exists(complete_old_file_name)):
 			old_file_exist = True
-			old_file_size = os.path.getsize(complete_old_file_name)
-
 	except Exception as e:
-		if (logger != None):
-			logger.error('The error thrown was {err_msg}'.format(err_msg=e))
+		if (logger is not None):
+			logger.error('Error 20220315051100 - The error thrown was {err_msg}'.format(err_msg=e))
 		else:
 			raise e
 
-	if ((old_file_exist) and (logger != None)):
-		logger.debug('Size of old/original file: ' + str(old_file_size))
-
-	if ((new_file_exist) and (logger != None)):
-		logger.debug('Size of new/destination file: ' + str(new_file_size))
-
 	if (old_file_exist):
 		if (new_file_exist):
-			if ((old_file_size) == (new_file_size)):
-				status_return = 4 # Both files in the same size
-			else:
-				status_return = 3 # Both files exist in different sizes
+			status_return = 3 # Both files exist in different sizes
 		else:
 			status_return = 1 # Only exist original/old
 	else:
@@ -661,12 +797,31 @@ def get_move_status(complete_old_file_name: str = '', complete_new_file_name: st
 		else:
 			status_return = 2 # Not exist both files
 
-	return status_return
+	if (status_return > 2):
+		try:
+			new_file_size = os.path.getsize(complete_new_file_name)
+			old_file_size = os.path.getsize(complete_old_file_name)
+		except Exception as e:
+			if (logger is not None):
+				logger.error('Error 20220315051000 - The error thrown was {err_msg}'.format(err_msg=e))
+			else:
+				raise e
+		if ((old_file_size) == (new_file_size)):
+			status_return = 4 # Both files in the same size
+		else:
+			status_return = 3 # Both files exist in different sizes
+		logger.debug('Size of old/original file: ' + str(old_file_size))
+		logger.debug('Size of new/destination file: ' + str(new_file_size))
+
+	del(new_file_exist)
+	del(old_file_exist)
+	del(new_file_size)
+	del(old_file_size)
+	return(status_return)
 
 #----------------------------------------------------------------------------------------------#
 # MAIN: #
 #----------------------------------------------------------------------------------------------#
-# Reference: https://stackoverflow.com/questions/2909975/python-list-directory-subdirectory-and-files#2909998
 # Reference: https://docs.python.org/3/library/datetime.html
 # Reference: https://pynative.com/python-datetime-format-strftime/
 # Reference: https://code-paper.com/python/examples-python-datetime-convert-float-to-date
@@ -677,8 +832,8 @@ def main():
 	files_destination: str = args.files_destination
 	folders: str = args.folders
 	files_prefix: str = args.files_prefix
+	overwrite: str = args.overwrite
 	batch_quantity_files: int = args.batch_quantity_files
-	exif_min_year_discart_date: int = args.exif_min_year_discart_date
 	min_size_escape_low_resolution: int = args.min_size_escape_low_resolution
 	generate_folder_sufix: bool = args.generate_folder_sufix
 	rename_file: bool = args.rename_file
@@ -687,7 +842,6 @@ def main():
 	logger: logging.Logger = log_inicialization(timestamp_log)
 
 	logger.info('---------- << pyPhotosOrganizeTPV >> ----------')
-
 	logger.info('Starting script version [' + PROJECT_VERSION + '] doing <<' + PROJECT_DOING + '>>...')
 
 	now = datetime.datetime.now()
@@ -698,11 +852,25 @@ def main():
 	logger.debug(files_destination)
 	logger.debug('Folders mask: '+ folders)
 	logger.debug('Files prefix mask: '+ files_prefix)
-	
+
+	overwrite = overwrite.lower()
+	overwrite = overwrite[0:1]
+	if (overwrite == 'o'):
+		logger.warning('If file exist on destination, it will be overwrited in the destination folder!')
+	else:
+		if (overwrite == 'i'):
+			logger.warning('If file exist on destination, it will ignored in the original folder!')
+		else:
+			logger.debug('If file exist on destination, it will be duplicated in the destination folder!')
+			if (overwrite != 'd'):
+				logger.warning('Option to overwrite invalid!')
+				overwrite = 'd'
+
 	logger.debug('------ Test:')
 	logger.debug('Showing datetime in folder format: ' +  now.strftime(folders))
 	logger.debug('Showing datetime in prefix format: ' + now.strftime(files_prefix))
 
+	logger.debug('')
 	logger.debug('------ Starting file process...')
 
 	counter_files_processed: int = 0
@@ -727,6 +895,7 @@ def main():
 
 				if ((batch_quantity_files == 0) or (counter_files_processed <= batch_quantity_files)):
 
+					logger.info('')
 					logger.info('--- Processing file #' + str(counter_files_processed) + msg_max_file_processed)
 					logger.info('Absolut file name:')
 					logger.info(file_name_absolut)
@@ -740,7 +909,7 @@ def main():
 					metadata_file_datetime: datetime = None
 					metadata_file_datetime = get_metadata_datetime(absolut_file_name = file_name_absolut, logger = logger)
 
-					if (metadata_file_datetime != None):
+					if (metadata_file_datetime is not None):
 						logger.debug('Metadata datetime stamp: ' + str(metadata_file_datetime))
 						if ((file_datetime_stamp == None) or (file_datetime_stamp > metadata_file_datetime)):
 							file_datetime_type = 'METADATA'
@@ -753,7 +922,7 @@ def main():
 					filesystem_file_datetime:datetime = None
 					filesystem_file_datetime = get_filesystem_datetime(absolut_file_name = file_name_absolut, logger = logger)
 
-					if (filesystem_file_datetime != None):
+					if (filesystem_file_datetime is not None):
 						logger.debug('Filesystem datetime stamp: ' + str(filesystem_file_datetime))
 						if ((file_datetime_stamp == None) or (file_datetime_stamp > filesystem_file_datetime)):
 							file_datetime_type = 'FILESYSTEM'
@@ -766,7 +935,7 @@ def main():
 					filename_file_datetime: datetime = None
 					filename_file_datetime, filename_datetime_text = get_filename_datetime(file_name_absolut, logger)
 
-					if (filename_file_datetime != None):
+					if (filename_file_datetime is not None):
 						logger.debug('File name datetime stamp: ' + str(filename_file_datetime))
 						if ((file_datetime_stamp == None) or (file_datetime_stamp > filename_file_datetime)):
 							file_datetime_type = 'FILENAME'
@@ -775,55 +944,14 @@ def main():
 						logger.debug('No datetime from filename!')
 
 					#----------------------------------------------------------------------#
-					# Reading Geodata information:
-					# Reference: https://towardsdatascience.com/grabbing-geodata-from-your-photos-library-using-python-60eb0462e147
-					# Reference: https://sylvaindurand.org/gps-data-from-photos-with-python/
-					# Reference: https://pypi.org/project/gpsphoto/
-					# Reference: https://medium.com/spatial-data-science/how-to-extract-gps-coordinates-from-images-in-python-e66e542af354
-					# Reference: https://stackoverflow.com/questions/19804768/interpreting-gps-info-of-exif-data-from-photo-in-python
+					# Reading metadata date information:
+					geodata_resume: str = ''
+					geodata_resume = get_geodata_exif(absolut_file_name = file_name_absolut, logger = logger)
 
-					o_latitude: float = 0.00
-					o_longitude: float = 0.00
-					latitude: int = 0
-					longitude: int = 0
-
-
-					try:
-						image = Image.open(file_name_absolut)
-						exif_dict = piexif.load(image.info['exif'])
-					except Exception as e:
-						if (logger != None):
-							logger.error("Error 20220313062100 to get metadata EXIF: {msg_e}".format(msg_e=e))
-						else:
-							raise e
-					if (len(exif_dict["Exif"]) > 0):
-						#exif_information = image._getexif()[36867]
-						exif = image._getexif()
-						#exif = exif_dict["Exif"]
-						if exif is not None:
-							for key, value in exif.items():
-									name = TAGS.get(key, value)
-									exif[name] = exif.pop(key)
-									print(exif[name])
-							if 'GPSInfo' in exif:
-									for key in exif['GPSInfo'].keys():
-										name = GPSTAGS.get(key,key)
-										exif['GPSInfo'][name] = exif['GPSInfo'].pop(key)
-							#exif_information = image._getexif()['GPSInfo']
-							#print(exif_information)
-							exif_information = image._getexif()['GPS Information']
-							print(exif_information)
-
-					try:
-						geodata = gpsphoto.getGPSData(file_name_absolut)
-						#o_longitude = gpsphoto.getGPSData(file_name_absolut)['Longitude']
-						#o_latitude = gpsphoto.getGPSData(file_name_absolut)['Latitude']
-						logger.debug('GeoData: ' + str(geodata))
-					except Exception as e:
-						if (logger != None):
-							logger.error('The error thrown was {err_msg}'.format(err_msg=e))
-						else:
-							raise e
+					if (geodata_resume != ''):
+						logger.debug('Geodata: {geodata_resume}').format(geodata_resume)
+					else:
+						logger.debug('No geodata from metadata!')
 
 					#----------------------------------------------------------------------#
 					# Creating new file name, absolut path and absolut file name:
@@ -875,86 +1003,45 @@ def main():
 
 						#----------------------------------------------------------------------#
 						# Moving original file to new destiny:
+						file_was_on_destiny:bool = False
+						new_absolut_file_name_used: str = ''
+						status_copia: int = -1
 
-						'''
-						if not os.path.exists(new_file_dir):
-							os.makedirs(new_file_dir)
+						if not os.path.exists(new_absolut_path):
+							os.makedirs(new_absolut_path)
 
-						arquivo_movido = False
-						arquivo_copiado = False
+						file_was_on_destiny, new_absolut_file_name_used = tpv_move_file(file_name_absolut, new_absolut_file_name, overwrite, logger)
 
-						if os.path.exists(complete_path_new_file):
-							try:
-								logger.debug('Tamanho origem: ' + str(os.path.getsize(file_name_absolut)))
-								logger.debug('Tamanho destino: ' + str(os.path.getsize(complete_path_new_file)))
-								if (os.path.getsize(file_name_absolut) == os.path.getsize(complete_path_new_file)):
-									counter_files_on_destination = counter_files_on_destination + 1
-									try:
-										os.unlink(file_name_absolut)
-										arquivo_movido = True
-									except WindowsError as e:
-										logger.info('Erro 0004')
-										#logger.error("The error thrown was {e}".format(e=e))
-										if (os.path.getsize(file_name_absolut) == os.path.getsize(complete_path_new_file)):
-											logger.info('Esperando 10s...')
-											time.sleep(1)
-											try:
-												os.remove(file_name_absolut)
-												arquivo_movido = True
-											except WindowsError as e:
-												logger.error("The error thrown was {e}".format(e=e))
-							except Exception as e:
-								logger.error("The error thrown was {e}".format(e=e))
-						'''
-						'''
-						if (arquivo_movido == False):
-							try:
-								shutil.move(file_name_absolut, complete_path_new_file)
-								arquivo_movido = True
-								logger.info('Image was moved.')
-							except Exception as e:
-								logger.info('Erro 0002')
-								#logger.error("There was an error copying {picture} to {target}".format(picture=file_name_absolut,target=complete_path_new_file))
-								#logger.error("The error thrown was {e}".format(e=e))
+						if (file_was_on_destiny):
+							counter_files_on_destination = counter_files_on_destination + 1
+							logger.warning('It was exist a file on destination!')
 
-						if (arquivo_movido == False):
-							try:
-								os.rename(file_name_absolut, complete_path_new_file)
-								arquivo_movido = True
-								logger.info('Image was renamed.')
-							except Exception as e:
-								logger.info('Erro 0001')
-								#logger.error("The error thrown was {e}".format(e=e))
-						'''
+						# 0 - Not exist both files, 1 - Only exist original/old, 2 - Only existe destination/new, 3 - Both files exist in different sizes, 4 - Both files in the same size
+						status_copia = get_move_status(file_name_absolut, new_absolut_file_name_used, logger)
 
-						'''
-						if (arquivo_movido == False):
-							try:
-								#os.link(file_name_absolut, complete_path_new_file)
-								#os.remove(file_name_absolut)
-								arquivo_movido = True
-								logger.info('Image was copied and deleted.')
-							except PermissionError:
-								logger.error('Error trying to rename file.')
-						'''
-
-						'''
-						if (arquivo_movido == False):
-							if (os.path.getsize(file_name_absolut) == os.path.getsize(complete_path_new_file)):
+						if ((overwrite != 'i') and (status_copia != 2)):
+							if (status_copia == 3):
+								logger.error('Erro 20220315042300: Both files are continue existing in differente size!')
+								logger.warning('Ignoring files!')
+							if (status_copia == 4):
+								logger.error('Erro 20220315030900: Both files are continue existing!')
+								logger.warning('Removing oringal file!')
 								try:
-									#os.remove(file_name_absolut)
-									os.system('move /y "{origem}" "{destino}"'.format(origem=file_name_absolut, destino=complete_path_new_file))
+									os.remove(file_name_absolut)
+									#os.unlink(file_name_absolut)
+									logger.debug('Oringal file removed!')
 								except Exception as e:
-									logger.error("The error thrown was {e}".format(e=e))
-						'''
+									logger.error('Error 20200315033300 removing original file: {err_msg}'.format(err_msg=e))
 
 				else:
 					logger.debug('File ignored - batch limit: ' + str(batch_quantity_files) + ' - file ' + str(file_name_absolut))
 			else:
 				logger.debug('File ignored (extension): ' + str(file_name_absolut))
 
-	if (counter_files_on_destination >0):
+	if (counter_files_on_destination > 0):
 		logger.warning('Images pre-existents on destine: '+str(counter_files_on_destination))
+	logger.info('')
+	logger.debug('------ Fineshed!')
 	sys.exit(0)
 
 #----------------------------------------------------------------------------------------------#
