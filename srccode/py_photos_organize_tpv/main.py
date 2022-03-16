@@ -80,7 +80,9 @@ def tpv_move_file(file_name_absolut: str = '', new_absolut_file_name: str = '', 
 	new_absolut_file_name_used: str = ''
 	invalid_name: bool = True
 	file_was_on_destiny:bool = False
-	file_was_on_destiny = False
+
+	# TODO: Criar um real_action que inicia com o overwrite_option e depende da situação do arquivo
+
 	new_absolut_file_name_used = new_absolut_file_name
 	if os.path.exists(new_absolut_file_name):
 		file_was_on_destiny = True
@@ -218,7 +220,7 @@ def log_inicialization(log_with_timestamp: Boolean = False) -> logging.Logger:
 
 	# Setting the threshold of logger: screen_log...
 	coloredlogs.install(
-		level='DEBUG', 
+		level='INFO', 
 		logger=logger, 
 		milliseconds=True, 
 		fmt='%(asctime)s,%(msecs)03d %(levelname)s %(message)s' 
@@ -326,7 +328,7 @@ def get_metadata_datetime(absolut_file_name: str = '', logger: logging.Logger = 
 				raise e
 		if (exif_information != ''):
 			tmp_datetime_obtido = datetime.datetime.strptime(exif_information, '%Y:%m:%d %H:%M:%S')
-			if ((datetime_metadata == None) or (tmp_datetime_obtido < datetime_metadata)):
+			if ((datetime_metadata is None) or (tmp_datetime_obtido < datetime_metadata)):
 				datetime_metadata = tmp_datetime_obtido
 
 	if (len(exif_dict["0th"]) > 0):
@@ -341,7 +343,7 @@ def get_metadata_datetime(absolut_file_name: str = '', logger: logging.Logger = 
 				raise e
 		if (exif_information != ''):
 			tmp_datetime_obtido = datetime.datetime.strptime(exif_information[2:21], '%Y:%m:%d %H:%M:%S')
-			if ((datetime_metadata == None) or (tmp_datetime_obtido < datetime_metadata)):
+			if ((datetime_metadata is None) or (tmp_datetime_obtido < datetime_metadata)):
 				datetime_metadata = tmp_datetime_obtido
 
 	del(exif_dict["0th"])
@@ -367,6 +369,7 @@ def get_filename_datetime(absolut_file_name: str = '', logger: logging.Logger = 
 	o_filename_datetime: datetime = None
 	datetime_regex: Pattern = None
 	reg_exp_match = {}
+	atual_impreciso: bool = False
 	filename_datetime: datetime = None
 	filename_text: string = ''
 
@@ -389,9 +392,13 @@ def get_filename_datetime(absolut_file_name: str = '', logger: logging.Logger = 
 						logger.error("Error 20220313033600 converting date founded using YYYY?MM?DD?hh?mm?ss: {msg_e}".format(msg_e=e))
 					else:
 						raise e
-				if ((filename_datetime == None) or (o_filename_datetime < filename_datetime)):
+				if ((filename_datetime is None) or (atual_impreciso) or ((o_filename_datetime < filename_datetime) and (o_second != '00') and (o_minute != '00') and (o_hour != '00'))):
 					filename_text = o_substring
 					filename_datetime = o_filename_datetime
+					if ((o_second == '00') and (o_minute == '00') and (o_hour == '00')):
+						atual_impreciso = True
+					else:
+						atual_impreciso = False
 
 	# YYYYMMDD?hhmmss:
 	datetime_regex = re.compile(r'(19[7-9][0-9]|20[0-2][0-9])(0[1-9]|1[0-2])(0[1-9]|[1-2][0-9]|3[0-1])([\D])([0-1][0-9]|2[0-4])([0-5][0-9])([0-5][0-9])')
@@ -412,9 +419,13 @@ def get_filename_datetime(absolut_file_name: str = '', logger: logging.Logger = 
 						logger.error("Error 20220313033700 converting date founded using YYYYMMDD?hhmmss: {msg_e}".format(msg_e=e))
 					else:
 						raise e
-				if ((filename_datetime == None) or (o_filename_datetime < filename_datetime)):
+				if ((filename_datetime is None) or (atual_impreciso) or ((o_filename_datetime < filename_datetime) and (o_second != '00') and (o_minute != '00') and (o_hour != '00'))):
 					filename_text = o_substring
 					filename_datetime = o_filename_datetime
+					if ((o_second == '00') and (o_minute == '00') and (o_hour == '00')):
+						atual_impreciso = True
+					else:
+						atual_impreciso = False
 
 	# YYYYMMDDhhmmss:
 	datetime_regex = re.compile(r'(19[7-9][0-9]|20[0-2][0-9])(0[1-9]|1[0-2])(0[1-9]|[1-2][0-9]|3[0-1])([0-1][0-9]|2[0-4])([0-5][0-9])([0-5][0-9])')
@@ -435,9 +446,13 @@ def get_filename_datetime(absolut_file_name: str = '', logger: logging.Logger = 
 						logger.error("Error 20220313033701 converting date founded using YYYYMMDDhhmmss: {msg_e}".format(msg_e=e))
 					else:
 						raise e
-				if ((filename_datetime == None) or (o_filename_datetime < filename_datetime)):
+				if ((filename_datetime is None) or (atual_impreciso) or ((o_filename_datetime < filename_datetime) and (o_second != '00') and (o_minute != '00') and (o_hour != '00'))):
 					filename_text = o_substring
 					filename_datetime = o_filename_datetime
+					if ((o_second == '00') and (o_minute == '00') and (o_hour == '00')):
+						atual_impreciso = True
+					else:
+						atual_impreciso = False
 
 	# DDMMYYYY?hhmmss:
 	datetime_regex = re.compile(r'(0[1-9]|[1-2][0-9]|3[0-1])(0[1-9]|1[0-2])(19[7-9][0-9]|20[0-2][0-9])([\D])([0-1][0-9]|2[0-4])([0-5][0-9])([0-5][0-9])')
@@ -458,9 +473,13 @@ def get_filename_datetime(absolut_file_name: str = '', logger: logging.Logger = 
 						logger.error("Error 20220313033702 converting date founded using DDMMYYYY?hhmmss: {msg_e}".format(msg_e=e))
 					else:
 						raise e
-				if ((filename_datetime == None) or (o_filename_datetime < filename_datetime)):
+				if ((filename_datetime is None) or (atual_impreciso) or ((o_filename_datetime < filename_datetime) and (o_second != '00') and (o_minute != '00') and (o_hour != '00'))):
 					filename_text = o_substring
 					filename_datetime = o_filename_datetime
+					if ((o_second == '00') and (o_minute == '00') and (o_hour == '00')):
+						atual_impreciso = True
+					else:
+						atual_impreciso = False
 
 	# DDMMYYYYhhmmss:
 	datetime_regex = re.compile(r'(0[1-9]|[1-2][0-9]|3[0-1])(0[1-9]|1[0-2])(19[7-9][0-9]|20[0-2][0-9])([0-1][0-9]|2[0-4])([0-5][0-9])([0-5][0-9])')
@@ -481,9 +500,13 @@ def get_filename_datetime(absolut_file_name: str = '', logger: logging.Logger = 
 						logger.error("Error 20220313033800 converting date founded using DDMMYYYYhhmmss: {msg_e}".format(msg_e=e))
 					else:
 						raise e
-				if ((filename_datetime == None) or (o_filename_datetime < filename_datetime)):
+				if ((filename_datetime is None) or (atual_impreciso) or ((o_filename_datetime < filename_datetime) and (o_second != '00') and (o_minute != '00') and (o_hour != '00'))):
 					filename_text = o_substring
 					filename_datetime = o_filename_datetime
+					if ((o_second == '00') and (o_minute == '00') and (o_hour == '00')):
+						atual_impreciso = True
+					else:
+						atual_impreciso = False
 
 	# DD?MM?YYYY?hh?mm?ss:
 	datetime_regex = re.compile(r'(0[1-9]|[1-2][0-9]|3[0-1])(\D)(0[1-9]|1[0-2])(\D)(19[7-9][0-9]|20[0-2][0-9])(\D)([0-1][0-9]|2[0-4])(\D)([0-5][0-9])(\D)([0-5][0-9])')
@@ -504,9 +527,13 @@ def get_filename_datetime(absolut_file_name: str = '', logger: logging.Logger = 
 						logger.error("Error 20220313033900 converting date founded using DD?MM?YYYY?hh?mm?ss: {msg_e}".format(msg_e=e))
 					else:
 						raise e
-				if ((filename_datetime == None) or (o_filename_datetime < filename_datetime)):
+				if ((filename_datetime is None) or (atual_impreciso) or ((o_filename_datetime < filename_datetime) and (o_second != '00') and (o_minute != '00') and (o_hour != '00'))):
 					filename_text = o_substring
 					filename_datetime = o_filename_datetime
+					if ((o_second == '00') and (o_minute == '00') and (o_hour == '00')):
+						atual_impreciso = True
+					else:
+						atual_impreciso = False
 
 	# MMDDYYYY?hhmmss:
 	datetime_regex = re.compile(r'(0[1-9]|1[0-2])(0[1-9]|[1-2][0-9]|3[0-1])(19[7-9][0-9]|20[0-2][0-9])([\D])([0-1][0-9]|2[0-4])([0-5][0-9])([0-5][0-9])')
@@ -527,9 +554,13 @@ def get_filename_datetime(absolut_file_name: str = '', logger: logging.Logger = 
 						logger.error("Error 20220313033901 converting date founded using MMDDYYYY?hhmmss: {msg_e}".format(msg_e=e))
 					else:
 						raise e
-				if ((filename_datetime == None) or (o_filename_datetime < filename_datetime)):
+				if ((filename_datetime is None) or (atual_impreciso) or ((o_filename_datetime < filename_datetime) and (o_second != '00') and (o_minute != '00') and (o_hour != '00'))):
 					filename_text = o_substring
 					filename_datetime = o_filename_datetime
+					if ((o_second == '00') and (o_minute == '00') and (o_hour == '00')):
+						atual_impreciso = True
+					else:
+						atual_impreciso = False
 
 	# MMDDYYYYhhmmss:
 	datetime_regex = re.compile(r'(0[1-9]|1[0-2])(0[1-9]|[1-2][0-9]|3[0-1])(19[7-9][0-9]|20[0-2][0-9])([0-1][0-9]|2[0-4])([0-5][0-9])([0-5][0-9])')
@@ -550,9 +581,13 @@ def get_filename_datetime(absolut_file_name: str = '', logger: logging.Logger = 
 						logger.error("Error 20220313033905 converting date founded using MMDDYYYYhhmmss: {msg_e}".format(msg_e=e))
 					else:
 						raise e
-				if ((filename_datetime == None) or (o_filename_datetime < filename_datetime)):
+				if ((filename_datetime is None) or (atual_impreciso) or ((o_filename_datetime < filename_datetime) and (o_second != '00') and (o_minute != '00') and (o_hour != '00'))):
 					filename_text = o_substring
 					filename_datetime = o_filename_datetime
+					if ((o_second == '00') and (o_minute == '00') and (o_hour == '00')):
+						atual_impreciso = True
+					else:
+						atual_impreciso = False
 
 	# MM?DD?YYYY?hh?mm?ss:
 	datetime_regex = re.compile(r'(0[1-9]|1[0-2])(\D)(0[1-9]|[1-2][0-9]|3[0-1])(\D)(19[7-9][0-9]|20[0-2][0-9])(\D)([0-1][0-9]|2[0-4])(\D)([0-5][0-9])(\D)([0-5][0-9])')
@@ -573,10 +608,13 @@ def get_filename_datetime(absolut_file_name: str = '', logger: logging.Logger = 
 						logger.error("Error 20220313034000 converting date founded using MM?DD?YYYY?hh?mm?ss: {msg_e}".format(msg_e=e))
 					else:
 						raise e
-				if ((filename_datetime == None) or (o_filename_datetime < filename_datetime)):
+				if ((filename_datetime is None) or (atual_impreciso) or ((o_filename_datetime < filename_datetime) and (o_second != '00') and (o_minute != '00') and (o_hour != '00'))):
 					filename_text = o_substring
 					filename_datetime = o_filename_datetime
-
+					if ((o_second == '00') and (o_minute == '00') and (o_hour == '00')):
+						atual_impreciso = True
+					else:
+						atual_impreciso = False
 	del(o_substring)
 	del(o_second)
 	del(o_minute)
@@ -585,6 +623,7 @@ def get_filename_datetime(absolut_file_name: str = '', logger: logging.Logger = 
 	del(o_month)
 	del(o_year)
 	del(o_filename_datetime)
+	del(atual_impreciso)
 	del(datetime_regex)
 	del(reg_exp_match)
 	return filename_datetime, filename_text
@@ -602,22 +641,22 @@ def get_new_absolut_path(min_escape_low_resolution: int = 0, folder_sufix: bool 
 	new_dir_destination: str = ''
 
 
-	if ((folder_sufix) and ((original_absolut_file_name == None) or (len(original_absolut_file_name) < 1))):
+	if ((folder_sufix) and ((original_absolut_file_name is None) or (len(original_absolut_file_name) < 1))):
 		continue_execution = False
 		if (logger is not None):
 			logger.warning("Warning 20220313053300 - It's configured folder sufix without original file name.")
 
-	if (file_date == None):
+	if (file_date is None):
 		continue_execution = False
 		if (logger is not None):
 			logger.warning("Warning 20220313053500 - Datetime stamp not defined.")
 
-	if ((folders_mask == None) or (len(folders_mask) < 1)):
+	if ((folders_mask is None) or (len(folders_mask) < 1)):
 		continue_execution = False
 		if (logger is not None):
 			logger.warning("Warning 20220313053600 - Folder mask not defined.")
 
-	if ((destination_dir == None) or (len(destination_dir) < 1)):
+	if ((destination_dir is None) or (len(destination_dir) < 1)):
 		continue_execution = False
 		if (logger is not None):
 			logger.warning("Warning 20220313053700 - Destination folder defined.")
@@ -890,7 +929,7 @@ def main():
 
 			file_name_absolut = os.path.abspath(str(pathlib.PurePath(original_path, file_name)))
 
-			if (file_name.endswith(ALL_EXTENSIONS)):
+			if (file_name.lower().endswith(ALL_EXTENSIONS)):
 				counter_files_processed = counter_files_processed + 1
 
 				if ((batch_quantity_files == 0) or (counter_files_processed <= batch_quantity_files)):
@@ -911,7 +950,7 @@ def main():
 
 					if (metadata_file_datetime is not None):
 						logger.debug('Metadata datetime stamp: ' + str(metadata_file_datetime))
-						if ((file_datetime_stamp == None) or (file_datetime_stamp > metadata_file_datetime)):
+						if ((file_datetime_stamp is None) or (file_datetime_stamp > metadata_file_datetime)):
 							file_datetime_type = 'METADATA'
 							file_datetime_stamp = metadata_file_datetime
 					else:
@@ -924,7 +963,7 @@ def main():
 
 					if (filesystem_file_datetime is not None):
 						logger.debug('Filesystem datetime stamp: ' + str(filesystem_file_datetime))
-						if ((file_datetime_stamp == None) or (file_datetime_stamp > filesystem_file_datetime)):
+						if ((file_datetime_stamp is None) or (file_datetime_stamp > filesystem_file_datetime)):
 							file_datetime_type = 'FILESYSTEM'
 							file_datetime_stamp = filesystem_file_datetime
 					else:
@@ -937,7 +976,7 @@ def main():
 
 					if (filename_file_datetime is not None):
 						logger.debug('File name datetime stamp: ' + str(filename_file_datetime))
-						if ((file_datetime_stamp == None) or (file_datetime_stamp > filename_file_datetime)):
+						if ((file_datetime_stamp is None) or (file_datetime_stamp > filename_file_datetime)):
 							file_datetime_type = 'FILENAME'
 							file_datetime_stamp = filename_file_datetime
 					else:
@@ -961,7 +1000,7 @@ def main():
 					new_absolut_file_name: str = ''
 					substring_remocao: str = ''
 
-					if ((len(file_name) <1) or (file_datetime_stamp == None)):
+					if ((len(file_name) <1) or (file_datetime_stamp is None)):
 						logger.warnning('Warn 20220313044000 - Impossible obtain a datetime stamp for file {msg_filename}'.format(msg_filename = file_name))
 
 					else:
@@ -969,15 +1008,14 @@ def main():
 						logger.debug('Using [' + file_datetime_type + ']...')
 
 						#----------------------------------------------------------------------#
-						# Creating new file name:
+						# Creating new name of file:
 						if (rename_file):
-
-							if ((filename_file_datetime <= file_datetime_stamp) and (len(filename_datetime_text)>0)):
+							if ((filename_file_datetime is not None) and (len(filename_datetime_text)>0)):
 								substring_remocao = filename_datetime_text
 								logger.debug('Removing substring <<' + substring_remocao + '>> from filename...')
-
+							else:
+								substring_remocao = ''
 							new_file_name = get_new_file_name(file_datetime_stamp, file_name, files_prefix, substring_remocao)
-
 						else:
 							new_file_name = file_name
 
@@ -1040,7 +1078,7 @@ def main():
 
 	if (counter_files_on_destination > 0):
 		logger.warning('Images pre-existents on destine: '+str(counter_files_on_destination))
-	logger.info('')
+	logger.debug('')
 	logger.debug('------ Fineshed!')
 	sys.exit(0)
 
