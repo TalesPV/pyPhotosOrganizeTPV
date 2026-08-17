@@ -2,23 +2,34 @@
 # -*- coding: utf-8 -*-
 """Geração de títulos com IA (Gemini / GPT-4o mini) e cache por SHA-256.
 
-As chaves de API ficam em ._SECRETS/ (._CHAVE_GEMINI.key e
-._CHAVE_OPENAI_CHATGPT.key). O título gerado compõe o bloco {titulo} do
-formato alvo de nome:
-    {data1}-{data2}-{cidade}-{titulo}{ext}
+Como funciona:
+
+- **Imagens** são analisadas pelo pacote compartilhado
+  ``pereiras_common.ia.analisar_foto`` (que devolve título snake_case,
+  resumo, nível de legalidade etc.); aqui usamos apenas o título.
+- **Vídeos** usam frames extraídos com ffmpeg e chamadas diretas às APIs
+  (Gemini primário, GPT-4o mini como fallback).
+- Os resultados são cacheados por SHA-256 em ``cache_sha256_titulos.jsonl``
+  para não repetir chamadas à API (não gasta créditos duas vezes).
+
+Chaves de API (importante para segurança):
+
+- As chaves ficam em arquivos FORA do repositório, na pasta pessoal do
+  usuário: ``~/.chaves_ia/chave_gemini.key`` e
+  ``~/.chaves_ia/chave_openai_chatgpt.key`` (padrão do pacote
+  compartilhado). Nunca versionar chaves no git.
+- Os caminhos podem ser trocados pela linha de comando:
+  ``--chave-gemini`` e ``--chave-openai``.
 
 Sem IA (--sem-ia) ou com falha de conectividade, o título fica vazio e o
 arquivo é gerado como {data1}-{data2}-{cidade}{ext}.
-
-Imagens usam GPT-4o mini como modelo primário e vídeos usam Gemini,
-sempre com fallback cruzado. Resultados são cacheados por SHA-256 para
-não repetir chamadas à API (cache_sha256_titulos.jsonl).
 """
 
 import base64
 import hashlib
 import json
 import logging
+import re
 import shutil
 import subprocess
 import tempfile
@@ -28,38 +39,50 @@ from pathlib import Path
 from google import genai
 from google.genai import types
 from openai import OpenAI
-from PIL import Image
-
-try:
-    from .nomeacao import para_snake_case
-except ImportError:
-    from nomeacao import para_snake_case
-
-DIR_RAIZ = Path(__file__).resolve().parent.parent
-DIR_SECRETS = DIR_RAIZ / "._SECRETS"
-CHAVE_GEMINI_PADRAO = DIR_SECRETS / "._CHAVE_GEMINI.key"
-CHAVE_OPENAI_PADRAO = DIR_SECRETS / "._CHAVE_OPENAI_CHATGPT.key"
-CACHE_TITULOS_PADRAO = DIR_RAIZ / "cache_sha256_titulos.jsonl"
-
-MODELO_GEMINI = "gemini-3.6-flash"
-MODELO_OPENAI = "gpt-4o-mini"
-MAX_DIM = 1024
-QUALIDADE_JPEG = 85
-CONTADOR_CHAMADAS = {"gemini": 0, "openai": 0}
-
-PROMPT_TITULO = (
-    "Resuma o conteúdo da imagem em um título de no máximo 5 palavras, em português. "
-    "Responda APENAS com o título: sem pontuação, sem aspas e sem markdown."
+from pereiras_common.ia import ErroAnaliseIA, analisar_foto
+from pereiras_common.uteis import (
+    CHAVE_GEMINI_PADRAO,
+    CHAVE_OPENAI_PADRAO,
+    ler_chave,
+    para_snake_case,
 )
 
 try:
     import imageio_ffmpeg
     FFMPEG_EXE = imageio_ffmpeg.get_ffmpeg_exe()
 except Exception:
+    # Sem o binário empacotado, tenta o ffmpeg instalado no sistema.
     FFMPEG_EXE = shutil.which("ffmpeg")
+
+# Raiz do projeto (pasta acima do pacote py_photos_organize_tpv).
+DIR_RAIZ = Path(__file__).resolve().parent.parent
+CACHE_TITULOS_PADRAO = DIR_RAIZ / "cache_sha256_titulos.jsonl"
+
+# Modelos usados para vídeos (as fotos usam os padrões do pereiras_common).
+MODELO_GEMINI = "gemini-3.6-flash"
+MODELO_OPENAI = "gpt-4o-mini"
+
+# Tamanho máximo dos frames enviados à IA (economia de tokens).
+MAX_DIM = 1024
+QUALIDADE_JPEG = 85
+
+# Contador de chamadas por provedor (exibido nos logs/resumo).
+CONTADOR_CHAMADAS = {"gemini": 0, "openai": 0}
+
+# Pedido enviado às APIs para vídeos: apenas o título.
+PROMPT_TITULO = (
+    "Resuma o conteúdo da imagem em um título de no máximo 5 palavras, em português. "
+    "Responda APENAS com o título: sem pontuação, sem aspas e sem markdown."
+)
 
 
 def sha256_arquivo(caminho):
+    """Calcula o SHA-256 do conteúdo do arquivo (em blocos de 1 MB).
+
+    Usado como chave do cache de títulos: arquivos idênticos recebem o
+    mesmo título sem nova chamada à API. Retorna None se o arquivo não
+    puder ser lido.
+    """
     h = hashlib.sha256()
     try:
         with open(caminho, "rb") as f:
@@ -71,6 +94,11 @@ def sha256_arquivo(caminho):
 
 
 def carregar_cache_titulos(cache_path=None):
+    """Lê o cache de títulos (JSONL) do disco e devolve um dict {sha256: registro}.
+
+    Formato do arquivo: uma linha JSON por registro. Linhas corrompidas
+    são ignoradas (o cache é um atalho, não uma fonte de verdade).
+    """
     path = Path(cache_path) if cache_path else CACHE_TITULOS_PADRAO
     cache = {}
     if not path.exists():
@@ -93,6 +121,7 @@ def carregar_cache_titulos(cache_path=None):
 
 
 def gravar_cache_titulos(registro, cache_path=None):
+    """Anexa um registro ao cache de títulos (append-only, formato JSONL)."""
     path = Path(cache_path) if cache_path else CACHE_TITULOS_PADRAO
     try:
         with open(path, "a", encoding="utf-8") as f:
@@ -101,29 +130,28 @@ def gravar_cache_titulos(registro, cache_path=None):
         pass
 
 
-def carregar_chave(caminho):
-    p = Path(caminho)
-    if not p.is_file():
-        return None
-    chave = p.read_text(encoding="utf-8").strip()
-    return chave if len(chave) >= 10 else None
-
-
 def criar_client_gemini(chave):
+    """Cria o cliente Gemini com timeout estendido (imagens demoram mais)."""
     try:
         return genai.Client(
             api_key=chave,
             http_options=types.HttpOptions(timeout=120000),
         )
     except Exception:
+        # SDKs mais antigos podem não aceitar http_options: cria simples.
         return genai.Client(api_key=chave)
 
 
 def criar_client_openai(chave):
+    """Cria o cliente OpenAI (GPT) com timeout de 120 segundos."""
     return OpenAI(api_key=chave, timeout=120.0)
 
 
 def verificar_gemini(client):
+    """Pré-voo do Gemini: uma chamada barata para validar chave/conexão.
+
+    Se falhar, o cliente é considerado indisponível e não será usado.
+    """
     try:
         r = client.models.generate_content(
             model=MODELO_GEMINI, contents="Responda apenas: ok",
@@ -136,6 +164,7 @@ def verificar_gemini(client):
 
 
 def verificar_openai(client):
+    """Pré-voo do GPT-4o mini: uma chamada barata para validar chave/conexão."""
     try:
         client.chat.completions.create(
             model=MODELO_OPENAI,
@@ -150,29 +179,40 @@ def verificar_openai(client):
 
 
 def criar_contexto_ia(chave_gemini_path=None, chave_openai_path=None):
-    """Cria os clientes de IA disponíveis (pré-voo de cada um).
+    """Cria o contexto de IA: clientes funcionais + chaves para análise.
 
-    Retorna um dict com os clientes funcionais (chaves "gemini" e/ou "openai")
-    ou None se nenhuma IA estiver disponível.
+    Leitura das chaves:
+
+    - Parâmetros ``chave_gemini_path``/``chave_openai_path`` (vindos da
+      linha de comando) têm prioridade.
+    - Sem parâmetro, usa o padrão ``~/.chaves_ia/chave_gemini.key`` e
+      ``~/.chaves_ia/chave_openai_chatgpt.key``.
+
+    Retorna um dict com as chaves "gemini" e/ou "openai" (clientes que
+    passaram no pré-voo) e "chave_gemini"/"chave_openai" (texto das
+    chaves, para a análise de fotos do pacote compartilhado). Retorna
+    None se nenhuma IA estiver disponível.
     """
     contexto = {}
-    chave_gemini = carregar_chave(chave_gemini_path or CHAVE_GEMINI_PADRAO)
+    chave_gemini = ler_chave(chave_gemini_path or CHAVE_GEMINI_PADRAO)
     if chave_gemini:
         try:
             cliente = criar_client_gemini(chave_gemini)
             if verificar_gemini(cliente):
                 contexto["gemini"] = cliente
+                contexto["chave_gemini"] = chave_gemini
                 logging.info("IA Gemini disponível (%s).", MODELO_GEMINI)
             else:
                 logging.warning("IA Gemini indisponível (pré-voo falhou).")
         except Exception as e:
             logging.warning("Não foi possível criar o cliente Gemini: %s", e)
-    chave_openai = carregar_chave(chave_openai_path or CHAVE_OPENAI_PADRAO)
+    chave_openai = ler_chave(chave_openai_path or CHAVE_OPENAI_PADRAO)
     if chave_openai:
         try:
             cliente = criar_client_openai(chave_openai)
             if verificar_openai(cliente):
                 contexto["openai"] = cliente
+                contexto["chave_openai"] = chave_openai
                 logging.info("IA GPT-4o mini disponível (%s).", MODELO_OPENAI)
             else:
                 logging.warning("IA GPT-4o mini indisponível (pré-voo falhou).")
@@ -198,40 +238,36 @@ def normalizar_titulo(titulo):
     return t if t != "sem_nome" else ""
 
 
-def preparar_imagem(caminho):
-    try:
-        img = Image.open(caminho)
-        img = img.convert("RGB")
-        img.thumbnail((MAX_DIM, MAX_DIM), Image.Resampling.LANCZOS)
-        buf = tempfile.SpooledTemporaryFile(max_size=8 * 1024 * 1024)
-        img.save(buf, format="JPEG", quality=QUALIDADE_JPEG)
-        buf.seek(0)
-        return buf.read()
-    except Exception as e:
-        raise RuntimeError(f"não foi possível ler a imagem ({e})") from e
-
-
 def extrair_frames_video(caminho, n_frames=5):
-    """Extrai frames em intervalos regulares do vídeo (ffmpeg)."""
+    """Extrai frames em intervalos regulares do vídeo (ffmpeg).
+
+    - Lê a duração do vídeo do stderr do ffmpeg.
+    - Escolhe momentos espaçados uniformemente ao longo do vídeo.
+    - Extrai 1 frame por momento, redimensionado para MAX_DIM pixels.
+
+    Retorna uma lista de bytes JPEG (vazia em caso de falha).
+    """
     if not FFMPEG_EXE:
         return []
     try:
+        # 1ª passada: só para descobrir a duração (impressa no stderr).
         r = subprocess.run(
             [FFMPEG_EXE, "-hide_banner", "-i", str(caminho), "-f", "null", "-"],
             capture_output=True, text=True, timeout=180,
         )
-        import re
         m = re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", r.stderr or "")
         duracao = None
         if m:
             duracao = int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3))
     except (OSError, subprocess.TimeoutExpired):
         return []
+    # Vídeos muito curtos: usa um único momento (0,1 s).
     if not duracao or duracao <= 1.0:
         momentos = [0.1]
     else:
         n = max(1, min(n_frames, int(duracao)))
         momentos = [min(max(duracao * (i + 0.5) / n, 0.05), duracao - 0.05) for i in range(n)]
+    # 2ª passada: extrai cada frame para um arquivo temporário.
     frames = []
     with tempfile.TemporaryDirectory(prefix="organize_frames_") as tmp:
         for i, t in enumerate(momentos):
@@ -253,6 +289,7 @@ def extrair_frames_video(caminho, n_frames=5):
 
 
 def gerar_titulo_gemini(client, frames):
+    """Pede um título ao Gemini para os frames do vídeo."""
     parts = [types.Part.from_text(text=PROMPT_TITULO)]
     for f in frames:
         parts.append(types.Part.from_bytes(data=f, mime_type="image/jpeg"))
@@ -265,6 +302,7 @@ def gerar_titulo_gemini(client, frames):
 
 
 def gerar_titulo_openai(client, frames):
+    """Pede um título ao GPT-4o mini para os frames do vídeo."""
     conteudo = [{"type": "text", "text": PROMPT_TITULO}]
     for f in frames:
         conteudo.append({
@@ -284,7 +322,13 @@ def gerar_titulo_openai(client, frames):
     return normalizar_titulo(titulo)
 
 
-def _gerar_titulo_com_fallback(contexto, frames, preferencia):
+def _gerar_titulo_video_com_fallback(contexto, frames, preferencia):
+    """Tenta gerar o título do vídeo com fallback cruzado entre as IAs.
+
+    - preferencia = "gemini" tenta Gemini primeiro; caso contrário, OpenAI.
+    - Se o modelo preferido falhar, tenta o outro.
+    - Se todos falharem, lança RuntimeError (o chamador decide o que fazer).
+    """
     pares = [
         (contexto.get("openai"), "GPT-4o mini", gerar_titulo_openai),
         (contexto.get("gemini"), "Gemini", gerar_titulo_gemini),
@@ -308,8 +352,36 @@ def _gerar_titulo_com_fallback(contexto, frames, preferencia):
     return ""
 
 
+def _titulo_imagem_compartilhado(contexto, caminho):
+    """Título de uma IMAGEM via pereiras_common.ia.analisar_foto.
+
+    Preferência: OpenAI primeiro, Gemini como fallback. Retorna "" se
+    nenhuma IA estiver disponível ou se as análises falharem.
+    """
+    titulo = ""
+    chave_openai = contexto.get("chave_openai")
+    chave_gemini = contexto.get("chave_gemini")
+    if chave_openai:
+        try:
+            titulo = analisar_foto(chave_openai, "openai", caminho).titulo
+            logging.debug("Título da imagem gerado pelo GPT-4o mini.")
+        except ErroAnaliseIA as e:
+            logging.warning("GPT-4o mini falhou na imagem: %s", e)
+    if not titulo and chave_gemini:
+        try:
+            titulo = analisar_foto(chave_gemini, "gemini", caminho).titulo
+            logging.debug("Título da imagem gerado pelo Gemini.")
+        except ErroAnaliseIA as e:
+            logging.warning("Gemini falhou na imagem: %s", e)
+    return titulo
+
+
 def obter_titulo(caminho, tipo, contexto, cache, cache_path=None, n_frames=5):
     """Título em snake_case gerado por IA (com cache SHA-256).
+
+    - Imagens: análise pelo pacote compartilhado (OpenAI -> Gemini).
+    - Vídeos: frames extraídos por ffmpeg (Gemini -> OpenAI).
+    - Cache: arquivos idênticos (SHA-256) reutilizam o título salvo.
 
     Retorna "" quando a IA está desativada (--sem-ia) ou indisponível
     (sem chave, sem conectividade, falha nas chamadas). Nesse caso o
@@ -327,12 +399,11 @@ def obter_titulo(caminho, tipo, contexto, cache, cache_path=None, n_frames=5):
     if sha:
         try:
             if tipo == "imagem":
-                frames = [preparar_imagem(caminho)]
-                titulo = _gerar_titulo_com_fallback(contexto, frames, preferencia="openai")
+                titulo = _titulo_imagem_compartilhado(contexto, caminho)
             elif tipo == "video":
                 frames = extrair_frames_video(caminho, n_frames)
                 if frames:
-                    titulo = _gerar_titulo_com_fallback(contexto, frames, preferencia="gemini")
+                    titulo = _gerar_titulo_video_com_fallback(contexto, frames, preferencia="gemini")
         except Exception as e:
             logging.warning("IA indisponível para %s (%s); arquivo será gerado sem título.",
                             caminho.name, e)

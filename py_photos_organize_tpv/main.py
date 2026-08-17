@@ -32,9 +32,14 @@ DIR_LOGS = DIR_RAIZ / "logs"
 
 
 def criar_parser():
+    """Cria e configura o parser de argumentos da linha de comando.
+
+    Cada opção do CLI vira um campo da Config (ver organizador.Config).
+    Os padrões aqui definidos valem quando o usuário não informa nada.
+    """
     ap = argparse.ArgumentParser(
         description="Organiza fotos/vídeos por data (EXIF/metadados), gerando arquivos "
-                    "no formato {data1}-{data2}-{cidade}-{titulo}{ext}.",
+                    "no formato {data1}-{data2}-{cidade}-{titulo}-{hash6}{ext}.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     ap.add_argument("-o", "--files-orign", type=str, default="d:\\",
@@ -61,9 +66,11 @@ def criar_parser():
                     help="não usa APIs de IA (sem consumo de tokens/créditos); "
                          "arquivos gerados sem o bloco de título")
     ap.add_argument("--chave-gemini", type=str, default=None,
-                    help="arquivo com a chave da API Gemini (padrão: ._SECRETS/._CHAVE_GEMINI.key)")
+                    help="arquivo com a chave da API Gemini "
+                         "(padrão: ~/.chaves_ia/chave_gemini.key)")
     ap.add_argument("--chave-openai", type=str, default=None,
-                    help="arquivo com a chave da API OpenAI (padrão: ._SECRETS/._CHAVE_OPENAI_CHATGPT.key)")
+                    help="arquivo com a chave da API OpenAI "
+                         "(padrão: ~/.chaves_ia/chave_openai_chatgpt.key)")
     ap.add_argument("--dry-run", action="store_true",
                     help="apenas mostra o que seria feito, sem alterar nada")
     ap.add_argument("--mover", action="store_true",
@@ -74,6 +81,11 @@ def criar_parser():
 
 
 def main(argv=None):
+    """Ponto de entrada do CLI: parseia argumentos e executa o organizador.
+
+    Passos: configurar log, validar a pasta de origem, registrar o opener
+    HEIC (fotos de iPhone), montar a Config e chamar organizar().
+    """
     ap = criar_parser()
     args = ap.parse_args(argv)
 

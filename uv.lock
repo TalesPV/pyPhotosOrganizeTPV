@@ -517,12 +517,14 @@ wheels = [
 [[package]]
 name = "pereiras-common"
 version = "0.1.0"
-source = { git = "https://github.com/TalesPV/pereiras-scripts.git?rev=main#110de69bea5c9b967735d03346ca64e5876db0e5" }
+source = { git = "https://github.com/TalesPV/pereiras-scripts.git?rev=main#c2dc71e3e4edbea72af18f6890b5fbcb0d183fb2" }
 dependencies = [
     { name = "defusedxml" },
     { name = "exifread" },
+    { name = "google-genai" },
     { name = "imageio-ffmpeg" },
     { name = "mutagen" },
+    { name = "openai" },
     { name = "piexif" },
     { name = "pillow" },
     { name = "pillow-heif" },

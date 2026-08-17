@@ -1,23 +1,62 @@
 # pyPhotosOrganizeTPV
-Organiza fotos, vídeos e outros formatos em subpastas por data (EXIF/metadados,
+
+Organiza fotos, vídeos e áudios em subpastas por data (EXIF/metadados,
 nome do arquivo ou sistema de arquivos), gerando arquivos no formato:
 
 ```
-{data1}-{data2}-{cidade}-{titulo}{ext}
+{data1}-{data2}-{cidade}-{titulo}-{hash6}{ext}
 ```
 
 - `data1` é a data mais antiga e `data2` a mais recente (se houver uma só,
   ela se repete nos dois blocos), com máscara `YYYY_MM_DD_HHhMMmSSs`.
-- `cidade` vem do GPS dos metadados (EXIF/XMP de imagens e localização
-  ISO 6709/©xyz de vídeos via ffmpeg) resolvido pelo Nominatim/OpenStreetMap
-  com cache local; sem GPS usa `sem_gps`.
+- `cidade` vem do GPS dos metadados resolvido pelo Nominatim/OpenStreetMap
+  com cache local; sem GPS usa `sem_gps`; sem resposta do serviço, usa as
+  coordenadas (`-23_5500_-46_6333`).
 - `titulo` é um título em snake_case de até 5 palavras, gerado por IA
-  (GPT-4o mini para imagens e Gemini para vídeos, com fallback cruzado).
-  Resultados são cacheados por SHA-256.
+  (GPT-4o mini primário para imagens e Gemini para vídeos, com fallback
+  cruzado). Resultados são cacheados por SHA-256.
+- `hash6` é o hash alfanumérico de 6 caracteres do conteúdo do arquivo
+  (função `hash_curto_6` do pacote compartilhado `pereiras-common`):
+  identifica o arquivo e evita nomes duplicados quando há cópias do
+  mesmo conteúdo na origem.
+
+---
+
+## Índice
+
+1. [Visão geral e especificação](#visão-geral-e-especificação)
+2. [Arquitetura e relacionamento entre os módulos](#arquitetura-e-relacionamento-entre-os-módulos)
+3. [Requisitos e instalação](#requisitos-e-instalação)
+4. [Chaves de IA (segurança)](#chaves-de-ia-segurança)
+5. [Como executar](#como-executar)
+6. [Parâmetros](#parâmetros)
+7. [Exemplos](#exemplos)
+8. [Testes (TDD)](#testes-tdd)
+9. [Pull Requests](#pull-requests)
+10. [ToDos](#todos)
+
+---
+
+## Visão geral e especificação
+
+Fluxo de cada arquivo encontrado na pasta de origem:
+
+1. **Extensão**: só arquivos suportados (imagens, vídeos, áudios,
+   office e outros listados em `pereiras_common.metadados`).
+2. **Datas e GPS**: metadados embutidos (EXIF/XMP/PNG, ffmpeg/mutagen),
+   depois nome do arquivo, depois sistema de arquivos; exiftool é
+   fallback opcional.
+3. **Sufixo de pasta**: `videos`, `audios`, `office`, `outros_tipos`,
+   `screen_capture`, `social_media`, `instant_messages`,
+   `low_resolution` (conforme extensão/nome/tamanho).
+4. **Nome alvo**: título por IA (se habilitada), cidade por GPS e
+   hash curto do conteúdo.
+5. **Ação**: copiar (padrão) ou mover; se o alvo já existir:
+   duplicar (`_2`, `_3`, ...), ignorar ou sobrescrever.
 
 ### Fontes de metadados por tipo de arquivo
 
-A extração de metadados é feita pelo pacote compartilhado
+A extração é feita pelo pacote compartilhado
 [`pereiras-common`](https://github.com/TalesPV/pereiras-scripts)
 (módulo `pereiras_common.metadados`):
 
@@ -32,37 +71,74 @@ A extração de metadados é feita pelo pacote compartilhado
 ### Resiliência sem IA
 
 O `{titulo}` é a única parte do nome definida por IA. Se a IA estiver
-**desativada (`--sem-ia`) ou indisponível por qualquer motivo** (sem chave,
-sem conectividade, falha nas chamadas), o programa continua funcionando
-normalmente e gera os arquivos **sem o bloco de título**:
+**desativada (`--sem-ia`) ou indisponível por qualquer motivo** (sem
+chave, sem conectividade, falha nas chamadas), o programa continua
+funcionando e gera os arquivos **sem o bloco de título**:
 
 ```
-{data1}-{data2}-{cidade}{ext}
+{data1}-{data2}-{cidade}-{hash6}{ext}
 ```
 
-ex.: `2023_05_10_14h30m00s-2023_05_10_14h30m00s-sem_gps.jpg`
+ex.: `2023_05_10_14h30m00s-2023_05_10_14h30m00s-sem_gps-k3x9ab.jpg`
 
-Falhas de IA não são cacheadas, então uma execução futura com IA disponível
-pode gerar os títulos normalmente.
+Falhas de IA não são cacheadas, então uma execução futura com IA
+disponível pode gerar os títulos normalmente.
 
-## Requisitos
-- [uv](https://docs.astral.sh/uv/)
-- Python >= 3.14 (o uv gerencia a instalação)
+## Arquitetura e relacionamento entre os módulos
 
-## Instalação
+```
+py_photos_organize_tpv/
+├── __main__.py        # permite executar com "python -m py_photos_organize_tpv"
+├── main.py            # CLI: argparse, log e montagem da Config
+├── organizador.py     # núcleo: varredura, datas, nome alvo, copiar/mover
+├── nomeacao.py        # monta/extrai datas e monta o nome alvo
+├── geolocalizacao.py  # cidade por GPS (Nominatim + cache local)
+└── ia.py              # títulos por IA (usa pereiras_common.ia p/ fotos)
+```
+
+Relacionamentos:
+
+```
+main.py ──> organizador.py ──> ia.py ──────────> pereiras_common.ia (fotos)
+                        │         └──────────> APIs Gemini/OpenAI (vídeos)
+                        ├──> geolocalizacao.py
+                        ├──> nomeacao.py ────> pereiras_common.uteis (snake_case)
+                        └──> pereiras_common.metadados / pereiras_common.uteis
+```
+
+## Requisitos e instalação
+
+- [uv](https://docs.astral.sh/uv/) (gerencia Python e dependências)
+- Python >= 3.14 (o uv instala automaticamente)
+
 ```bash
 uv sync
 ```
 
-## Como executar
+Dependência principal: `pereiras-common` (via git, ver
+[pereiras-scripts](https://github.com/TalesPV/pereiras-scripts)).
 
-O script é executado pelo módulo Python `py_photos_organize_tpv`, via `uv run`:
+## Chaves de IA (segurança)
+
+As chaves de API ficam **fora do repositório**, na pasta do usuário:
+
+```
+~/.chaves_ia/chave_gemini.key            (Gemini)
+~/.chaves_ia/chave_openai_chatgpt.key    (OpenAI)
+```
+
+- Nunca versionar chaves no git (a pasta `~/.chaves_ia` está fora do projeto).
+- Trocar o local pela linha de comando: `--chave-gemini C:\meu\caminho.key`
+  e `--chave-openai C:\meu\caminho.key`.
+- O programa lê o conteúdo do arquivo; a chave nunca aparece em logs.
+
+## Como executar
 
 ```bash
 uv run python -m py_photos_organize_tpv [opções]
 ```
 
-O comando mínimo exige apenas a pasta de origem (`-o`) e a de destino (`-d`):
+O comando mínimo exige a pasta de origem (`-o`) e a de destino (`-d`):
 
 ```bash
 uv run python -m py_photos_organize_tpv -o D:\fotos -d E:\organizado
@@ -70,18 +146,11 @@ uv run python -m py_photos_organize_tpv -o D:\fotos -d E:\organizado
 
 ### Recomendação: comece com um dry-run
 
-O `--dry-run` mostra exatamente o que seria feito (copiar/mover e os novos
-nomes) **sem alterar nada no disco**. Confira a saída antes de executar de
-verdade:
+O `--dry-run` mostra exatamente o que seria feito (copiar/mover e os
+novos nomes) **sem alterar nada no disco**:
 
 ```bash
 uv run python -m py_photos_organize_tpv -o D:\fotos -d E:\organizado --dry-run
-```
-
-Depois de conferir, execute sem a flag para aplicar:
-
-```bash
-uv run python -m py_photos_organize_tpv -o D:\fotos -d E:\organizado
 ```
 
 Cada execução grava um log em `logs/log_py_photos_organize_tpv_<data>.log`.
@@ -100,9 +169,9 @@ Cada execução grava um log em `logs/log_py_photos_organize_tpv_<data>.log`.
 | `-g, --generate-folder-sufix` | sufixo de pasta por origem (`videos`, `social_media`, ...) | ativado |
 | `-n, --rename-file` | renomeia para o formato alvo | ativado |
 | `-l, --timestamp-log` | nome do arquivo de log com timestamp | ativado |
-| `--sem-ia` | desativa as APIs de IA (sem consumo de tokens/créditos); arquivos sem o bloco de título | desativado |
-| `--chave-gemini` | arquivo com a chave da API Gemini | `._SECRETS/._CHAVE_GEMINI.key` |
-| `--chave-openai` | arquivo com a chave da API OpenAI | `._SECRETS/._CHAVE_OPENAI_CHATGPT.key` |
+| `--sem-ia` | desativa as APIs de IA; arquivos sem o bloco de título | desativado |
+| `--chave-gemini` | arquivo com a chave da API Gemini | `~/.chaves_ia/chave_gemini.key` |
+| `--chave-openai` | arquivo com a chave da API OpenAI | `~/.chaves_ia/chave_openai_chatgpt.key` |
 | `--dry-run` | apenas mostra o que seria feito, sem alterar nada | desativado |
 | `--mover` | move os arquivos em vez de copiá-los | desativado |
 | `--frames` | frames extraídos por vídeo para a IA | `5` |
@@ -149,15 +218,11 @@ uv run python -m py_photos_organize_tpv -o D:\fotos -d E:\organizado -w i
 uv run python -m py_photos_organize_tpv -o D:\fotos -d E:\organizado -w o
 ```
 
-### Rodar sem IA (mais rápido e sem custo; nomes sem o bloco de título)
+### Organizar sem IA (sem consumo de tokens/créditos)
 
 ```bash
 uv run python -m py_photos_organize_tpv -o D:\fotos -d E:\organizado --sem-ia
 ```
-
-Se a IA falhar durante a execução (chave inválida, sem internet etc.), o
-comportamento é o mesmo do `--sem-ia`: o processamento continua e os arquivos
-são gerados como `{data1}-{data2}-{cidade}{ext}`.
 
 ### Ajustar regras de data e resolução
 
@@ -178,37 +243,31 @@ uv run python -m py_photos_organize_tpv -o D:\fotos -d E:\organizado --no-rename
 uv run python -m py_photos_organize_tpv -o D:\fotos -d E:\organizado --chave-gemini C:\chaves\gemini.key --chave-openai C:\chaves\openai.key
 ```
 
-## Chaves de API
-As chaves ficam em `._SECRETS/._CHAVE_GEMINI.key` e
-`._SECRETS/._CHAVE_OPENAI_CHATGPT.key` (ignoradas pelo git). Os títulos
-gerados por IA são cacheados por SHA-256 em `cache_sha256_titulos.jsonl`
-e as cidades do GPS em `cache_gps_cidades.json` (ambos ignorados pelo git).
+## Testes (TDD)
 
-## Metadados: bibliotecas e critérios
-
-A extração de metadados (datas e GPS de fotos, vídeos e áudios) vive no
-pacote compartilhado [`pereiras-common`](https://github.com/TalesPV/pereiras-scripts),
-consumido via `uv sync`:
-
-```
-pereiras-common @ git+https://github.com/TalesPV/pereiras-scripts.git@main
-```
-
-- **Pillow** (+ pillow-heif): padrão de fato para imagens (EXIF + XMP).
-- **ffmpeg** (via imageio-ffmpeg): padrão de fato para vídeo/áudio; binário empacotado.
-- **mutagen**: padrão para metadados de áudio (ID3, MP4, comentários Vorbis).
-- **piexif/exifread**: fallbacks para EXIF parcialmente corrompido ou não padronizado.
-- **defusedxml**: parser XML protegido contra XXE/billion laughs (leitura segura de XMP).
-- **exiftool** (binário externo, opcional): padrão-ouro em perícia forense.
-
-Critérios de decisão: manutenção ativa, reputação na comunidade, histórico de
-segurança e menor superfície de dependências. Parsers de metadados são
-superfície de ataque ao processar arquivos não confiáveis — por isso evita-se
-bibliotecas abandonadas e wrappers que injetam nomes de arquivo em linha de
-comando. A integração com exiftool é opcional (sem dependência nova) e
-recomendada apenas para quem mantém o binário atualizado.
-
-## Testes
 ```bash
 uv run pytest
 ```
+
+- `tests/test_nomeacao.py`: datas, snake_case e montagem do nome alvo.
+- `tests/test_organizador.py`: integração (varredura, sufixos, destino,
+  dedup de nomes, dry-run, títulos/cache de IA com dublês).
+- Os testes de metadados vivem no pacote `pereiras-common`
+  (fonte única das funções).
+
+## Pull Requests
+
+1. Crie uma branch a partir de `main`: `git switch -c feat/nome-curto`.
+2. Ajuste os testes primeiro (TDD) e rode `uv run pytest`.
+3. Atualize este README se o formato de nome, parâmetros ou fluxo mudarem.
+4. Abra o PR para `main` descrevendo: problema, solução, testes e impactos.
+
+## ToDos
+
+- [ ] Migrar as funções de data/nomeação duplicadas para `pereiras-common`
+      (`extrair_data_nome`, `montar_dt`, `parsear_data_exif`...).
+- [ ] Usar `analisar_foto` (pereiras_common.ia) também para vídeos quando
+      houver suporte a frames no pacote compartilhado.
+- [ ] Opção de usar o nível de legalidade da análise para alertar arquivos
+      de nível 3+ durante a organização.
+- [ ] CI (GitHub Actions) rodando os testes a cada PR.

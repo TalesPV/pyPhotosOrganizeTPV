@@ -115,6 +115,7 @@ def test_montar_pasta_destino():
 
 
 def test_organizar_formato_alvo(origem_com_imagens, tmp_path):
+    from pereiras_common.uteis import hash_curto_6
     destino = tmp_path / "destino"
     cfg = _config(origem_com_imagens, destino)
     estats = organizar(cfg)
@@ -122,16 +123,19 @@ def test_organizar_formato_alvo(origem_com_imagens, tmp_path):
     assert estats.copiados == 3
     assert estats.erros == 0
 
+    hash_viagem = hash_curto_6(origem_com_imagens / "viagem_2019_07_04_08h09m10s.jpg")
     alvo_viagem = destino / "2019_07" / ("2019_07_04_08h09m10s-2021_03_15_10h20m30s-"
-                                          "sem_gps.jpg")
+                                          f"sem_gps-{hash_viagem}.jpg")
     # data1 vem do nome (2019), data2 do EXIF (2021); sem IA, não há título
     assert alvo_viagem.exists()
 
+    wa_origem = origem_com_imagens / "subpasta" / "IMG-20190315-WA0000.jpg"
+    hash_wa = hash_curto_6(wa_origem)
     wa = destino / "2019_03-instant_messages"
     arquivos_wa = list(wa.glob("*.jpg"))
     assert len(arquivos_wa) == 1
     nome_wa = arquivos_wa[0].name
-    assert nome_wa == "2019_03_15_00h00m00s-2019_03_15_00h00m00s-sem_gps.jpg"
+    assert nome_wa == f"2019_03_15_00h00m00s-2019_03_15_00h00m00s-sem_gps-{hash_wa}.jpg"
 
 
 def test_organizar_duplicar_e_ignorar(origem_com_imagens, tmp_path):
@@ -175,6 +179,25 @@ def test_organizar_sem_data_mantem_nome(origem_com_imagens, tmp_path, monkeypatc
     cfg = _config(origem_com_imagens, destino)
     organizar(cfg)
     assert (destino / "sem_data" / "foto_praia.jpg").exists()
+
+
+def test_obter_titulo_imagem_usa_analise_compartilhada(origem_com_imagens, tmp_path, monkeypatch):
+    from pereiras_common.ia import AnaliseFoto
+    chamadas = []
+
+    def fake_analisar(chave, tipo_ia, caminho):
+        chamadas.append((tipo_ia, caminho))
+        return AnaliseFoto(titulo="praia_ensolarada", resumo="x", nivel=1,
+                           motivo="x", modelo="gpt-4o-mini")
+
+    monkeypatch.setattr(ia, "analisar_foto", fake_analisar)
+    contexto = {"openai": object(), "chave_openai": "CHAVE-OPENAI-123456"}
+    cache = {}
+    cache_path = tmp_path / "cache_titulos.jsonl"
+    titulo = ia.obter_titulo(origem_com_imagens / "foto_praia.jpg", "imagem", contexto,
+                             cache, str(cache_path))
+    assert titulo == "praia_ensolarada"
+    assert chamadas and chamadas[0][0] == "openai"
 
 
 def test_obter_titulo_sem_ia(origem_com_imagens, tmp_path):

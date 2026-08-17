@@ -83,6 +83,22 @@ def test_montar_novo_nome():
                     "rio_de_janeiro-festa_de_aniversario.jpg")
 
 
+def test_montar_novo_nome_com_hash_curto():
+    d1 = datetime(2020, 1, 2, 3, 4, 5)
+    d2 = datetime(2021, 6, 7, 8, 9, 10)
+    nome = montar_novo_nome(d1, d2, "rio_de_janeiro", "festa_de_aniversario",
+                            ".jpg", hash_curto="k3x9ab")
+    assert nome == ("2020_01_02_03h04m05s-2021_06_07_08h09m10s-"
+                    "rio_de_janeiro-festa_de_aniversario-k3x9ab.jpg")
+
+
+def test_montar_novo_nome_com_hash_sem_titulo():
+    d1 = datetime(2020, 1, 2, 3, 4, 5)
+    d2 = datetime(2021, 6, 7, 8, 9, 10)
+    nome = montar_novo_nome(d1, d2, "sao_paulo", "", ".jpg", hash_curto="k3x9ab")
+    assert nome == "2020_01_02_03h04m05s-2021_06_07_08h09m10s-sao_paulo-k3x9ab.jpg"
+
+
 def test_montar_novo_nome_sem_titulo():
     d1 = datetime(2020, 1, 2, 3, 4, 5)
     d2 = datetime(2021, 6, 7, 8, 9, 10)
