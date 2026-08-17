@@ -1,3 +1,8 @@
+# Chaves
+._SECRETS/
+._SECRETS/*
+*.key
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -109,6 +114,7 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+venv_tpv_photos_organize/
 
 # Spyder project settings
 .spyderproject
@@ -124,6 +130,11 @@ venv.bak/
 .mypy_cache/
 .dmypy.json
 dmypy.json
+
+# Projeto: caches e logs gerados em execução
+logs/
+cache_sha256_titulos.jsonl
+cache_gps_cidades.json
 
 # Pyre type checker
 .pyre/
