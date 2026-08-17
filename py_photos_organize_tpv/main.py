@@ -2,8 +2,12 @@
 # -*- coding: utf-8 -*-
 """Interface de linha de comando do pyPhotosOrganizeTPV.
 
-Organiza fotos, vídeos e outros formatos em subpastas por data, gerando
-arquivos no formato {data1}-{data2}-{cidade}-{titulo}{ext}.
+Organiza fotos, vídeos e áudios em subpastas por data, gerando arquivos
+no formato padrão de mídia:
+
+    YYYY_MM_DD_HHhMMmSSs-YYYY_MM_DD_HHhMMmSSs-cidade-hash6-titulo.ext
+
+Arquivos que não são mídia (office, PDFs etc.) mantêm o nome original.
 
 Exemplos:
   uv run python -m py_photos_organize_tpv -o D:\\fotos -d E:\\organizado
@@ -13,7 +17,7 @@ Exemplos:
 
 Resiliência: se a IA estiver desativada (--sem-ia) ou indisponível
 (sem chave ou sem conectividade), os arquivos são gerados sem o bloco
-{titulo}: {data1}-{data2}-{cidade}{ext}.
+{titulo}: YYYY_MM_DD_HHhMMmSSs-YYYY_MM_DD_HHhMMmSSs-cidade-hash6.ext.
 """
 
 import argparse
@@ -38,8 +42,9 @@ def criar_parser():
     Os padrões aqui definidos valem quando o usuário não informa nada.
     """
     ap = argparse.ArgumentParser(
-        description="Organiza fotos/vídeos por data (EXIF/metadados), gerando arquivos "
-                    "no formato {data1}-{data2}-{cidade}-{titulo}-{hash6}{ext}.",
+        description="Organiza fotos/vídeos/áudios por data (EXIF/metadados), gerando "
+                    "arquivos no formato YYYY_MM_DD_HHhMMmSSs-YYYY_MM_DD_HHhMMmSSs-"
+                    "cidade-hash6-titulo.ext.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     ap.add_argument("-o", "--files-orign", type=str, default="d:\\",

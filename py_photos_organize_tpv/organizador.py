@@ -1,16 +1,25 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """Núcleo do organizador: varre a pasta de origem e gera os arquivos
-organizados em subpastas por data, com o nome no formato alvo
-{data1}-{data2}-{cidade}-{titulo}-{hash6}{ext}.
+organizados em subpastas por data, com o nome padrão das mídias:
+
+    YYYY_MM_DD_HHhMMmSSs-YYYY_MM_DD_HHhMMmSSs-cidade-hash6-titulo.ext
+
+Regras de nomeação (detalhadas em pereiras_common.nomeacao):
+
+- Somente MÍDIAS (fotos, vídeos e áudios) são renomeadas; os demais
+  arquivos (office, PDFs etc.) mantêm o nome original.
+- Sem IA (ou com falha), o bloco {titulo} é omitido; o hash permanece
+  (identifica o conteúdo e evita sobrescrita de arquivos do mesmo horário).
 
 Fluxo de cada arquivo (processar_arquivo):
 
-1. Coleta datas e GPS (metadados -> nome do arquivo -> sistema de arquivos).
-2. Classifica um sufixo de pasta (videos, audios, social_media...).
+1. Coleta datas e GPS (pereiras_common.metadados.obter_datas).
+2. Classifica um sufixo de pasta (pereiras_common.metadados.classificar_sufixo).
 3. Gera o título por IA (se habilitada) e a cidade pelo GPS.
-4. Calcula o hash curto do conteúdo (identificação/deduplicação).
-5. Monta o nome alvo e copia/move para a pasta de destino.
+4. Calcula o hash curto do conteúdo (pereiras_common.uteis.hash_curto_6).
+5. Monta o nome alvo (pereiras_common.nomeacao.montar_nome_midia) e
+   copia/move para a pasta de destino.
 
 Estruturas de dados:
 
@@ -23,11 +32,17 @@ import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
-from pereiras_common import metadados
+from pereiras_common import geolocalizacao, metadados
+from pereiras_common.nomeacao import montar_nome_midia, montar_pasta_destino
 from pereiras_common.uteis import hash_curto_6
 
-from . import geolocalizacao, ia
-from .nomeacao import dentro_do_periodo, extrair_data_nome, montar_novo_nome
+from . import ia
+
+# Raiz do projeto (usada nos caminhos padrão dos caches).
+DIR_RAIZ = Path(__file__).resolve().parent.parent
+
+# Tipos de arquivo que são RENOMEADOS (os demais mantêm o nome original).
+TIPOS_MIDIA = {"imagem", "video", "audio"}
 
 
 @dataclass
@@ -76,93 +91,16 @@ def coletar_arquivos(origem: Path) -> list[Path]:
     return sorted(arquivos, key=lambda p: str(p).lower())
 
 
-def classificar_sufixo(caminho: Path, tamanho: int | None, min_size_low_res: int) -> str | None:
-    """Classifica o sufixo de pasta pela extensão, nome e tamanho.
-
-    Ex.: "video.mp4" -> "videos"; "Screenshot_1.jpg" -> "screen_capture";
-    arquivos pequenos -> "low_resolution". None = sem sufixo.
-    """
-    nome = caminho.name.lower()
-    ext = caminho.suffix.lower()
-    if ext in metadados.EXTS_VIDEO:
-        return "videos"
-    if ext in metadados.EXTS_AUDIO:
-        return "audios"
-    if ext in metadados.EXTS_OFFICE:
-        return "office"
-    if ext in metadados.EXTS_OUTROS:
-        return "outros_tipos"
-    if any(k in nome for k in ("screenshot", "screen", "capture")):
-        return "screen_capture"
-    if any(k in nome for k in ("insta", "facebook", "tiktok", "twitter", "social")):
-        return "social_media"
-    if any(k in nome for k in ("whats", "telegram", "message", "instant", "img-", "wa0")):
-        return "instant_messages"
-    if tamanho is not None and min_size_low_res > 0 and tamanho < min_size_low_res:
-        return "low_resolution"
-    return None
-
-
-def obter_datas(caminho: Path, ano_minimo: int):
-    """Retorna (data_min, data_max, gps) pelas fontes, em ordem de prioridade.
-
-    1. Metadados embutidos (EXIF/XMP/PNG para imagens; ffmpeg/mutagen para
-       vídeos; ID3/MP4/Vorbis para áudios), com fallback exiftool.
-    2. Nome do arquivo (várias máscaras de data).
-    3. Sistema de arquivos (data de criação/modificação).
-
-    data_min/data_max podem ser iguais (uma única data encontrada) ou
-    None (nenhuma data válida).
-    """
-    fontes = []
-    gps = None
+def classificar_tipo_arquivo(caminho: Path) -> str:
+    """Classifica o arquivo em "imagem", "video", "audio" ou "outro"."""
     ext = caminho.suffix.lower()
     if ext in metadados.EXTS_IMAGEM:
-        # Imagens: podem ter várias datas (EXIF + XMP); usamos min e max.
-        datas_meta, gps = metadados.metadados_imagem(caminho)
-        if not datas_meta and gps is None:
-            datas_meta, gps = metadados.metadados_exiftool(caminho)
-        if datas_meta:
-            validas = [d for d in datas_meta if dentro_do_periodo(d, ano_minimo)]
-            if validas:
-                fontes.append(("metadados", min(validas)))
-    elif ext in metadados.EXTS_VIDEO:
-        # Vídeos: uma única data (creation_time do container).
-        dt, gps = metadados.metadados_video(caminho)
-        if dt is None and gps is None:
-            dt, gps = metadados.metadados_exiftool(caminho)
-        if dt and dentro_do_periodo(dt, ano_minimo):
-            fontes.append(("metadados", dt))
-    elif ext in metadados.EXTS_AUDIO:
-        # Áudios: datas das tags (ID3/©day/Vorbis), com fallback exiftool.
-        datas_meta, gps = metadados.metadados_audio(caminho)
-        if not datas_meta and gps is None:
-            datas_meta, gps = metadados.metadados_exiftool(caminho)
-        if datas_meta:
-            validas = [d for d in datas_meta if dentro_do_periodo(d, ano_minimo)]
-            if validas:
-                fontes.append(("metadados", min(validas)))
-    dt_nome = extrair_data_nome(caminho.stem, ano_minimo)
-    if dt_nome:
-        fontes.append(("nome", dt_nome))
-    if not fontes:
-        dt_fs = metadados.data_filesystem(caminho)
-        if dt_fs and dentro_do_periodo(dt_fs, ano_minimo):
-            fontes.append(("sistema", dt_fs))
-    if not fontes:
-        return None, None, gps
-    datas = [dt for _, dt in fontes]
-    return min(datas), max(datas), gps
-
-
-def montar_pasta_destino(destino: Path, dt, mask: str, sufixo: str | None) -> Path:
-    """Monta a subpasta de destino: {data_formatada}-{sufixo} (ou "sem_data")."""
-    if dt is None:
-        return destino / "sem_data"
-    nome = dt.strftime(mask)
-    if sufixo:
-        nome = f"{nome}-{sufixo}"
-    return destino / nome
+        return "imagem"
+    if ext in metadados.EXTS_VIDEO:
+        return "video"
+    if ext in metadados.EXTS_AUDIO:
+        return "audio"
+    return "outro"
 
 
 def proximo_livre(alvo: Path) -> Path:
@@ -174,14 +112,40 @@ def proximo_livre(alvo: Path) -> Path:
     return alvo
 
 
+def _decidir_novo_nome(caminho: Path, tipo: str, d_min, d_max, gps,
+                       cfg: Config, contexto, cache_titulos, cache_gps) -> str:
+    """Define o nome alvo de uma MÍDIA (título por IA + cidade + hash).
+
+    Retorna o nome pronto ou None quando não há data (o chamador decide
+    se mantém o nome original e manda para sem_data).
+    """
+    if d_min is None:
+        return None
+    titulo = ia.obter_titulo(caminho, tipo, contexto["ia"], cache_titulos,
+                             contexto["cache_titulos_path"], cfg.frames)
+    cidade = (geolocalizacao.cidade_ou_coordenadas(gps[0], gps[1], cache_gps,
+                                                   contexto["cache_gps_path"])
+              if gps else "sem_gps")
+    # Hash curto do conteúdo: identifica o arquivo e evita sobrescrita
+    # de arquivos diferentes tirados no mesmo segundo.
+    hash6 = hash_curto_6(caminho)
+    novo_nome = montar_nome_midia(d_min, d_max, cidade,
+                                  hash6=hash6, titulo=titulo, extensao=caminho.suffix)
+    if novo_nome is None:
+        logging.warning("Nome alvo muito longo (%s); mantendo nome original.",
+                        caminho.name)
+        novo_nome = caminho.name
+    return novo_nome
+
+
 def processar_arquivo(caminho: Path, cfg: Config, contexto, cache_titulos, cache_gps, estats: Estatisticas):
     """Processa UM arquivo: define nome/pasta alvo e copia ou move.
 
     Ordem interna:
 
-    1. Obtém datas/GPS (obter_datas) e sufixo de pasta.
-    2. Se renomear habilitado: gera título (IA), cidade (GPS) e hash
-       curto; monta o nome alvo.
+    1. Obtém datas/GPS (metadados.obter_datas) e sufixo de pasta.
+    2. Mídias (foto/vídeo/áudio) com data são renomeadas no formato
+       padrão; os demais arquivos mantêm o nome original.
     3. Resolve conflito de nome existente (duplicar/ignorar/sobrescrever).
     4. Executa a ação (copiar/mover), respeitando o dry-run.
     """
@@ -189,33 +153,20 @@ def processar_arquivo(caminho: Path, cfg: Config, contexto, cache_titulos, cache
         tamanho = caminho.stat().st_size
     except OSError:
         tamanho = None
-    ext = caminho.suffix.lower()
-    if ext in metadados.EXTS_IMAGEM:
-        tipo = "imagem"
-    elif ext in metadados.EXTS_VIDEO:
-        tipo = "video"
-    else:
-        tipo = "outro"
+    tipo = classificar_tipo_arquivo(caminho)
 
-    d_min, d_max, gps = obter_datas(caminho, cfg.ano_minimo)
-    sufixo = classificar_sufixo(caminho, tamanho, cfg.min_size_low_res) if cfg.gerar_sufixo else None
+    d_min, d_max, gps = metadados.obter_datas(caminho, cfg.ano_minimo)
+    sufixo = (metadados.classificar_sufixo(caminho, tamanho=tamanho,
+                                           min_size_low_res=cfg.min_size_low_res)
+              if cfg.gerar_sufixo else None)
     pasta = montar_pasta_destino(cfg.destino, d_min, cfg.folders_mask, sufixo)
 
-    if d_min is not None and cfg.renomear:
-        titulo = ia.obter_titulo(caminho, tipo, contexto["ia"], cache_titulos,
-                                 contexto["cache_titulos_path"], cfg.frames)
-        cidade = (geolocalizacao.cidade_ou_coordenadas(gps[0], gps[1], cache_gps,
-                                                       contexto["cache_gps_path"])
-                  if gps else "sem_gps")
-        # Hash curto do conteúdo: identifica o arquivo e evita nomes
-        # duplicados quando há cópias do mesmo arquivo na origem.
-        hash6 = hash_curto_6(caminho)
-        novo_nome = montar_novo_nome(d_min, d_max, cidade, titulo, ext, hash6)
-        if novo_nome is None:
-            logging.warning("Nome alvo muito longo (%s); mantendo nome original.",
-                            caminho.name)
-            novo_nome = caminho.name
+    if tipo in TIPOS_MIDIA and cfg.renomear:
+        novo_nome = _decidir_novo_nome(caminho, tipo, d_min, d_max, gps, cfg,
+                                       contexto, cache_titulos, cache_gps)
     else:
+        novo_nome = None
+    if novo_nome is None:
         if d_min is None:
             estats.sem_data += 1
             logging.info("SEM DATA (mantendo nome original; pasta sem_data): %s", caminho)
@@ -268,10 +219,11 @@ def organizar(cfg: Config) -> Estatisticas:
     estats.total = len(arquivos)
     logging.info("Arquivos encontrados para organizar: %d.", estats.total)
 
+    cache_gps_path = cfg.cache_gps_path or str(DIR_RAIZ / "cache_gps_cidades.json")
     contexto = {
         "ia": None,
-        "cache_titulos_path": cfg.cache_titulos_path or ia.CACHE_TITULOS_PADRAO,
-        "cache_gps_path": cfg.cache_gps_path or geolocalizacao.CACHE_GPS_PADRAO,
+        "cache_titulos_path": cfg.cache_titulos_path or str(DIR_RAIZ / "cache_sha256_titulos.jsonl"),
+        "cache_gps_path": cache_gps_path,
     }
     if cfg.usar_ia:
         contexto["ia"] = ia.criar_contexto_ia(cfg.chave_gemini, cfg.chave_openai)

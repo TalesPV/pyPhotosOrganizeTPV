@@ -1,24 +1,25 @@
 # pyPhotosOrganizeTPV
 
 Organiza fotos, vídeos e áudios em subpastas por data (EXIF/metadados,
-nome do arquivo ou sistema de arquivos), gerando arquivos no formato:
+nome do arquivo ou sistema de arquivos), gerando as mídias no formato
+padrão do pacote compartilhado:
 
 ```
-{data1}-{data2}-{cidade}-{titulo}-{hash6}{ext}
+YYYY_MM_DD_HHhMMmSSs-YYYY_MM_DD_HHhMMmSSs-cidade-hash6-titulo.ext
 ```
 
-- `data1` é a data mais antiga e `data2` a mais recente (se houver uma só,
-  ela se repete nos dois blocos), com máscara `YYYY_MM_DD_HHhMMmSSs`.
+- 1º bloco = data mais antiga; 2º = mais recente (repetida se houver uma só).
 - `cidade` vem do GPS dos metadados resolvido pelo Nominatim/OpenStreetMap
   com cache local; sem GPS usa `sem_gps`; sem resposta do serviço, usa as
   coordenadas (`-23_5500_-46_6333`).
+- `hash6` é o hash alfanumérico de 6 caracteres do **conteúdo** do arquivo
+  (função `hash_curto_6` do pacote `pereiras-common`). Fica ANTES do
+  título: arquivos diferentes do mesmo horário não se sobrescrevem.
 - `titulo` é um título em snake_case de até 5 palavras, gerado por IA
   (GPT-4o mini primário para imagens e Gemini para vídeos, com fallback
   cruzado). Resultados são cacheados por SHA-256.
-- `hash6` é o hash alfanumérico de 6 caracteres do conteúdo do arquivo
-  (função `hash_curto_6` do pacote compartilhado `pereiras-common`):
-  identifica o arquivo e evita nomes duplicados quando há cópias do
-  mesmo conteúdo na origem.
+- Apenas **mídias** (foto/vídeo/áudio) são renomeadas; os demais arquivos
+  (office, PDFs, textos...) mantêm o nome original.
 
 ---
 
@@ -43,14 +44,16 @@ Fluxo de cada arquivo encontrado na pasta de origem:
 
 1. **Extensão**: só arquivos suportados (imagens, vídeos, áudios,
    office e outros listados em `pereiras_common.metadados`).
-2. **Datas e GPS**: metadados embutidos (EXIF/XMP/PNG, ffmpeg/mutagen),
-   depois nome do arquivo, depois sistema de arquivos; exiftool é
-   fallback opcional.
-3. **Sufixo de pasta**: `videos`, `audios`, `office`, `outros_tipos`,
-   `screen_capture`, `social_media`, `instant_messages`,
-   `low_resolution` (conforme extensão/nome/tamanho).
-4. **Nome alvo**: título por IA (se habilitada), cidade por GPS e
-   hash curto do conteúdo.
+2. **Datas e GPS**: `pereiras_common.metadados.obter_datas` — metadados
+   embutidos (EXIF/XMP/PNG, ffmpeg/mutagen), depois nome do arquivo,
+   depois sistema de arquivos; exiftool é fallback opcional.
+3. **Sufixo de pasta**: `pereiras_common.metadados.classificar_sufixo` —
+   `videos`, `audios`, `office`, `outros_tipos`, `screen_capture`,
+   `social_media`, `instant_messages`, `low_resolution`.
+4. **Nome alvo**: apenas para MÍDIAS — título por IA (se habilitada),
+   cidade por GPS e hash curto do conteúdo, montados por
+   `pereiras_common.nomeacao.montar_nome_midia`. Arquivos que não são
+   mídia mantêm o nome original.
 5. **Ação**: copiar (padrão) ou mover; se o alvo já existir:
    duplicar (`_2`, `_3`, ...), ignorar ou sobrescrever.
 
@@ -73,10 +76,10 @@ A extração é feita pelo pacote compartilhado
 O `{titulo}` é a única parte do nome definida por IA. Se a IA estiver
 **desativada (`--sem-ia`) ou indisponível por qualquer motivo** (sem
 chave, sem conectividade, falha nas chamadas), o programa continua
-funcionando e gera os arquivos **sem o bloco de título**:
+funcionando e gera as mídias **sem o bloco de título** (o hash permanece):
 
 ```
-{data1}-{data2}-{cidade}-{hash6}{ext}
+YYYY_MM_DD_HHhMMmSSs-YYYY_MM_DD_HHhMMmSSs-cidade-hash6.ext
 ```
 
 ex.: `2023_05_10_14h30m00s-2023_05_10_14h30m00s-sem_gps-k3x9ab.jpg`
@@ -91,19 +94,19 @@ py_photos_organize_tpv/
 ├── __main__.py        # permite executar com "python -m py_photos_organize_tpv"
 ├── main.py            # CLI: argparse, log e montagem da Config
 ├── organizador.py     # núcleo: varredura, datas, nome alvo, copiar/mover
-├── nomeacao.py        # monta/extrai datas e monta o nome alvo
-├── geolocalizacao.py  # cidade por GPS (Nominatim + cache local)
 └── ia.py              # títulos por IA (usa pereiras_common.ia p/ fotos)
 ```
 
-Relacionamentos:
+Funções comuns vivem no pacote
+[`pereiras-common`](https://github.com/TalesPV/pereiras-scripts):
 
 ```
-main.py ──> organizador.py ──> ia.py ──────────> pereiras_common.ia (fotos)
-                        │         └──────────> APIs Gemini/OpenAI (vídeos)
-                        ├──> geolocalizacao.py
-                        ├──> nomeacao.py ────> pereiras_common.uteis (snake_case)
-                        └──> pereiras_common.metadados / pereiras_common.uteis
+main.py ──> organizador.py ──> ia.py ──────────────────> pereiras_common.ia (fotos)
+                        │         └────────────────────> APIs Gemini/OpenAI (vídeos)
+                        ├──> pereiras_common.metadados  (obter_datas, classificar_sufixo)
+                        ├──> pereiras_common.nomeacao   (montar_nome_midia, pastas, datas)
+                        ├──> pereiras_common.geolocalizacao (cidade por GPS)
+                        └──> pereiras_common.uteis      (hash_curto_6, chaves)
 ```
 
 ## Requisitos e instalação
@@ -249,11 +252,11 @@ uv run python -m py_photos_organize_tpv -o D:\fotos -d E:\organizado --chave-gem
 uv run pytest
 ```
 
-- `tests/test_nomeacao.py`: datas, snake_case e montagem do nome alvo.
 - `tests/test_organizador.py`: integração (varredura, sufixos, destino,
-  dedup de nomes, dry-run, títulos/cache de IA com dublês).
-- Os testes de metadados vivem no pacote `pereiras-common`
-  (fonte única das funções).
+  dedup de nomes, dry-run, títulos/cache de IA com dublês e regra de
+  "outros arquivos não renomeados").
+- Os testes de nomeação, metadados, geolocalização, hash e IA vivem no
+  pacote `pereiras-common` (fonte única das funções).
 
 ## Pull Requests
 
@@ -264,10 +267,10 @@ uv run pytest
 
 ## ToDos
 
-- [ ] Migrar as funções de data/nomeação duplicadas para `pereiras-common`
-      (`extrair_data_nome`, `montar_dt`, `parsear_data_exif`...).
 - [ ] Usar `analisar_foto` (pereiras_common.ia) também para vídeos quando
       houver suporte a frames no pacote compartilhado.
+- [ ] Migrar `sha256_arquivo` e o cache de títulos para `pereiras-common`
+      (reaproveitamento no verificar_fotos_videos).
 - [ ] Opção de usar o nível de legalidade da análise para alertar arquivos
       de nível 3+ durante a organização.
 - [ ] CI (GitHub Actions) rodando os testes a cada PR.

@@ -7,15 +7,14 @@ from pathlib import Path
 
 import pytest
 from PIL import Image
-from pereiras_common import metadados
+from pereiras_common import geolocalizacao, metadados
+from pereiras_common.nomeacao import montar_pasta_destino
+from pereiras_common.metadados import classificar_sufixo, obter_datas
 
-from py_photos_organize_tpv import geolocalizacao, ia
+from py_photos_organize_tpv import ia
 from py_photos_organize_tpv.organizador import (
     Config,
-    classificar_sufixo,
     coletar_arquivos,
-    montar_pasta_destino,
-    obter_datas,
     organizar,
 )
 
@@ -58,14 +57,14 @@ def test_coletar_arquivos(origem_com_imagens):
 
 
 def test_classificar_sufixo():
-    assert classificar_sufixo(Path("x/video.mp4"), 10 ** 8, 100000) == "videos"
-    assert classificar_sufixo(Path("x/Screenshot_1.jpg"), 10 ** 6, 100000) == "screen_capture"
-    assert classificar_sufixo(Path("x/insta_post.jpg"), 10 ** 6, 100000) == "social_media"
-    assert classificar_sufixo(Path("x/IMG-20190315-WA0000.jpg"), 10 ** 6, 100000) == "instant_messages"
-    assert classificar_sufixo(Path("x/pequena.jpg"), 50000, 100000) == "low_resolution"
-    assert classificar_sufixo(Path("x/normal.jpg"), 10 ** 6, 100000) is None
-    assert classificar_sufixo(Path("x/audio.mp3"), 10 ** 6, 100000) == "audios"
-    assert classificar_sufixo(Path("x/doc.pdf"), 10 ** 6, 100000) == "outros_tipos"
+    assert classificar_sufixo(Path("x/video.mp4"), tamanho=10 ** 8, min_size_low_res=100000) == "videos"
+    assert classificar_sufixo(Path("x/Screenshot_1.jpg"), tamanho=10 ** 6, min_size_low_res=100000) == "screen_capture"
+    assert classificar_sufixo(Path("x/insta_post.jpg"), tamanho=10 ** 6, min_size_low_res=100000) == "social_media"
+    assert classificar_sufixo(Path("x/IMG-20190315-WA0000.jpg"), tamanho=10 ** 6, min_size_low_res=100000) == "instant_messages"
+    assert classificar_sufixo(Path("x/pequena.jpg"), tamanho=50000, min_size_low_res=100000) == "low_resolution"
+    assert classificar_sufixo(Path("x/normal.jpg"), tamanho=10 ** 6, min_size_low_res=100000) is None
+    assert classificar_sufixo(Path("x/audio.mp3"), tamanho=10 ** 6, min_size_low_res=100000) == "audios"
+    assert classificar_sufixo(Path("x/doc.pdf"), tamanho=10 ** 6, min_size_low_res=100000) == "outros_tipos"
 
 
 def test_obter_datas_exif_prioritario(origem_com_imagens):
@@ -101,7 +100,7 @@ def test_obter_datas_audio_metadados(tmp_path):
 
 
 def test_obter_datas_sem_nenhuma_fonte(origem_com_imagens, monkeypatch):
-    monkeypatch.setattr(metadados, "data_filesystem", lambda caminho: None)
+    monkeypatch.setattr(metadados, "data_filesystem", lambda caminho, ano_minimo=1980: None)
     d_min, d_max, _ = obter_datas(origem_com_imagens / "foto_praia.jpg", 1980)
     assert d_min is None and d_max is None
 
@@ -174,7 +173,7 @@ def test_organizar_renomear_desativado(origem_com_imagens, tmp_path):
 
 
 def test_organizar_sem_data_mantem_nome(origem_com_imagens, tmp_path, monkeypatch):
-    monkeypatch.setattr(metadados, "data_filesystem", lambda caminho: None)
+    monkeypatch.setattr(metadados, "data_filesystem", lambda caminho, ano_minimo=1980: None)
     destino = tmp_path / "destino"
     cfg = _config(origem_com_imagens, destino)
     organizar(cfg)
@@ -198,6 +197,20 @@ def test_obter_titulo_imagem_usa_analise_compartilhada(origem_com_imagens, tmp_p
                              cache, str(cache_path))
     assert titulo == "praia_ensolarada"
     assert chamadas and chamadas[0][0] == "openai"
+
+
+def test_organizar_outros_mantem_nome(tmp_path):
+    """Arquivos que não são mídia (txt/pdf/office) NUNCA são renomeados."""
+    origem = tmp_path / "origem"
+    origem.mkdir()
+    documento = origem / "contrato_2020_01_02.txt"
+    documento.write_text("texto", encoding="utf-8")
+    destino = tmp_path / "destino"
+    cfg = _config(origem, destino)
+    estats = organizar(cfg)
+    assert estats.copiados == 1
+    copias = list(destino.rglob("contrato_2020_01_02.txt"))
+    assert len(copias) == 1
 
 
 def test_obter_titulo_sem_ia(origem_com_imagens, tmp_path):

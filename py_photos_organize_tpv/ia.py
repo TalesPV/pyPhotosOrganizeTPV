@@ -22,7 +22,7 @@ Chaves de API (importante para segurança):
   ``--chave-gemini`` e ``--chave-openai``.
 
 Sem IA (--sem-ia) ou com falha de conectividade, o título fica vazio e o
-arquivo é gerado como {data1}-{data2}-{cidade}{ext}.
+arquivo é gerado como YYYY_MM_DD_HHhMMmSSs-YYYY_MM_DD_HHhMMmSSs-cidade-hash6.ext.
 """
 
 import base64
@@ -220,7 +220,7 @@ def criar_contexto_ia(chave_gemini_path=None, chave_openai_path=None):
             logging.warning("Não foi possível criar o cliente GPT-4o mini: %s", e)
     if not contexto:
         logging.warning("Nenhuma IA disponível; arquivos serão gerados sem o bloco de título "
-                        "({data1}-{data2}-{cidade}{ext}).")
+                        "({data1}-{data2}-{cidade}-{hash6}{ext}).")
         return None
     return contexto
 
@@ -385,7 +385,7 @@ def obter_titulo(caminho, tipo, contexto, cache, cache_path=None, n_frames=5):
 
     Retorna "" quando a IA está desativada (--sem-ia) ou indisponível
     (sem chave, sem conectividade, falha nas chamadas). Nesse caso o
-    arquivo é gerado sem o bloco {titulo}: {data1}-{data2}-{cidade}{ext}.
+    arquivo é gerado sem o bloco {titulo}: {data1}-{data2}-{cidade}-{hash6}{ext}.
 
     Só títulos gerados com sucesso entram no cache; falhas não são
     cacheadas para permitir novas tentativas em execuções futuras.
