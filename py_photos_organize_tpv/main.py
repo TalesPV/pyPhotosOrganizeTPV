@@ -23,13 +23,9 @@ from datetime import datetime
 from pathlib import Path
 
 import coloredlogs
+from pereiras_common import metadados
 
-try:
-    from . import metadados
-    from .organizador import Config, organizar
-except ImportError:
-    import metadados
-    from organizador import Config, organizar
+from .organizador import Config, organizar
 
 DIR_RAIZ = Path(__file__).resolve().parent.parent
 DIR_LOGS = DIR_RAIZ / "logs"

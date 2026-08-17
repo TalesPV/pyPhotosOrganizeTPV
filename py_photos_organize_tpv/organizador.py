@@ -9,14 +9,10 @@ import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
-try:
-    from . import geolocalizacao, ia, metadados
-    from .nomeacao import dentro_do_periodo, extrair_data_nome, montar_novo_nome
-except ImportError:
-    import geolocalizacao
-    import ia
-    import metadados
-    from nomeacao import dentro_do_periodo, extrair_data_nome, montar_novo_nome
+from pereiras_common import metadados
+
+from . import geolocalizacao, ia
+from .nomeacao import dentro_do_periodo, extrair_data_nome, montar_novo_nome
 
 
 @dataclass
@@ -99,6 +95,14 @@ def obter_datas(caminho: Path, ano_minimo: int):
             dt, gps = metadados.metadados_exiftool(caminho)
         if dt and dentro_do_periodo(dt, ano_minimo):
             fontes.append(("metadados", dt))
+    elif ext in metadados.EXTS_AUDIO:
+        datas_meta, gps = metadados.metadados_audio(caminho)
+        if not datas_meta and gps is None:
+            datas_meta, gps = metadados.metadados_exiftool(caminho)
+        if datas_meta:
+            validas = [d for d in datas_meta if dentro_do_periodo(d, ano_minimo)]
+            if validas:
+                fontes.append(("metadados", min(validas)))
     dt_nome = extrair_data_nome(caminho.stem, ano_minimo)
     if dt_nome:
         fontes.append(("nome", dt_nome))

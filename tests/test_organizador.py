@@ -7,8 +7,9 @@ from pathlib import Path
 
 import pytest
 from PIL import Image
+from pereiras_common import metadados
 
-from py_photos_organize_tpv import geolocalizacao, ia, metadados
+from py_photos_organize_tpv import geolocalizacao, ia
 from py_photos_organize_tpv.organizador import (
     Config,
     classificar_sufixo,
@@ -77,6 +78,26 @@ def test_obter_datas_exif_prioritario(origem_com_imagens):
 def test_obter_datas_nome(origem_com_imagens):
     d_min, d_max, _ = obter_datas(origem_com_imagens / "foto_praia.jpg", 1980)
     assert d_min == d_max
+
+
+def test_obter_datas_audio_metadados(tmp_path):
+    import imageio_ffmpeg
+    import subprocess
+    ff = imageio_ffmpeg.get_ffmpeg_exe()
+    audio = tmp_path / "musica.mp3"
+    r = subprocess.run(
+        [ff, "-y", "-loglevel", "error", "-f", "lavfi",
+         "-i", "sine=frequency=440:duration=1",
+         "-c:a", "libmp3lame", "-write_id3v2", "1", "-id3v2_version", "4",
+         "-metadata", "date=2021-06-15T12:34:56", str(audio)],
+        capture_output=True,
+    )
+    if r.returncode != 0:
+        pytest.skip("ffmpeg sem suporte a MP3")
+    d_min, d_max, gps = obter_datas(audio, 1980)
+    assert d_min == datetime(2021, 6, 15, 12, 34, 56)
+    assert d_max == d_min
+    assert gps is None
 
 
 def test_obter_datas_sem_nenhuma_fonte(origem_com_imagens, monkeypatch):
