@@ -516,8 +516,8 @@ wheels = [
 
 [[package]]
 name = "pereiras-common"
-version = "0.3.0"
-source = { git = "https://github.com/TalesPV/pereiras-scripts.git?rev=v0.3.0#064abd1da7604dcc636893797ff857a9982efbdf" }
+version = "0.3.1"
+source = { git = "https://github.com/TalesPV/pereiras-scripts.git?rev=v0.3.1#d0001ee76eca3b0c01a7f2128df3be8bc413582f" }
 dependencies = [
     { name = "defusedxml" },
     { name = "exifread" },
@@ -649,7 +649,7 @@ requires-dist = [
     { name = "google-genai", specifier = ">=2.18.1" },
     { name = "imageio-ffmpeg", specifier = ">=0.6.0" },
     { name = "openai", specifier = ">=3.1.0" },
-    { name = "pereiras-common", git = "https://github.com/TalesPV/pereiras-scripts.git?rev=v0.3.0" },
+    { name = "pereiras-common", git = "https://github.com/TalesPV/pereiras-scripts.git?rev=v0.3.1" },
     { name = "pillow", specifier = ">=12.3.0" },
 ]
 
