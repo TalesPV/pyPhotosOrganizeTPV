@@ -15,9 +15,11 @@ Exemplos:
   uv run python -m py_photos_organize_tpv -o D:\\fotos -d E:\\organizado --sem-ia
   uv run python -m py_photos_organize_tpv -o D:\\fotos -d E:\\organizado --mover -q 100
 
-Resiliência: se a IA estiver desativada (--sem-ia) ou indisponível
-(sem chave ou sem conectividade), os arquivos são gerados sem o bloco
-{titulo}: YYYY_MM_DD_HHhMMmSSs-YYYY_MM_DD_HHhMMmSSs-cidade-hash6.ext.
+IA é opt-in: sem --com-ia nenhuma API é chamada. Nesse caso (ou se a IA
+estiver indisponível por falta de chave ou de rede), os arquivos são
+gerados sem o bloco {titulo}:
+YYYY_MM_DD_HHhMMmSSs-YYYY_MM_DD_HHhMMmSSs-cidade-hash6.ext.
+Um título já gravado no nome NÃO é perdido (ver preservar_nome_original).
 """
 
 import argparse
@@ -71,9 +73,15 @@ def criar_parser():
                     default=True, help="renomeia o arquivo para o formato alvo")
     ap.add_argument("-l", "--timestamp-log", action=argparse.BooleanOptionalAction,
                     default=True, help="nome do arquivo de log com timestamp")
-    ap.add_argument("--sem-ia", action="store_true",
-                    help="não usa APIs de IA (sem consumo de tokens/créditos); "
-                         "arquivos gerados sem o bloco de título")
+    # A IA custa dinheiro por arquivo, então é opt-in: sem --com-ia, não roda.
+    # --sem-ia continua aceito (agora redundante) para não quebrar scripts
+    # antigos; usar os dois juntos é ambíguo e o argparse recusa.
+    grupo_ia = ap.add_mutually_exclusive_group()
+    grupo_ia.add_argument("--com-ia", action="store_true",
+                          help="gera o bloco de título com IA (consome tokens e "
+                               "créditos). Sem esta opção, nenhuma API é chamada")
+    grupo_ia.add_argument("--sem-ia", action="store_true",
+                          help="explicita que não se deve usar IA (já é o padrão)")
     ap.add_argument("--chave-gemini", type=str, default=None,
                     help="arquivo com a chave da API Gemini "
                          r"(padrão: $HOME\.chaves_ia\chave_google_gemini.key)")
@@ -126,6 +134,9 @@ def main(argv=None):
         sys.exit(f"ERRO: pasta de origem não encontrada: {origem}")
     if not args.aplicar:
         logging.info("MODO SIMULAÇÃO: nada será alterado. Use --aplicar para executar.")
+    if not args.com_ia:
+        logging.info("SEM IA (padrão): nenhuma API será chamada e os arquivos sairão "
+                     "sem o bloco de título. Use --com-ia para gerar títulos.")
 
     metadados.registrar_heif()
 
@@ -139,7 +150,7 @@ def main(argv=None):
         min_size_low_res=args.min_size_escape_low_resolution,
         gerar_sufixo=args.generate_folder_sufix,
         renomear=args.rename_file,
-        usar_ia=not args.sem_ia,
+        usar_ia=args.com_ia,
         dry_run=not args.aplicar,
         mover=args.mover,
         frames=args.frames,

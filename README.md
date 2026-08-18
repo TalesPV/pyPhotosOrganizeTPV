@@ -20,6 +20,9 @@ YYYY_MM_DD_HHhMMmSSs-YYYY_MM_DD_HHhMMmSSs-cidade-hash6-titulo.ext
   cruzado). Resultados são cacheados por SHA-256.
 - Apenas **mídias** (foto/vídeo/áudio) são renomeadas; os demais arquivos
   (office, PDFs, textos...) mantêm o nome original.
+- O relatório de classificação (`.gemini_36_flash.md`) gerado pelo
+  `verificar_fotos_videos` **acompanha a mídia** ao copiar ou mover: separá-los
+  deixaria órfã uma análise que custou dinheiro de API.
 
 ---
 
@@ -212,7 +215,8 @@ Cada execução grava um log em `logs/log_py_photos_organize_tpv_<data>.log`.
 | `-g, --generate-folder-sufix` | sufixo de pasta por origem (`videos`, `social_media`, ...) | ativado |
 | `-n, --rename-file` | renomeia para o formato alvo | ativado |
 | `-l, --timestamp-log` | nome do arquivo de log com timestamp | ativado |
-| `--sem-ia` | desativa as APIs de IA; arquivos sem o bloco de título | desativado |
+| `--com-ia` | **gera títulos com IA** (consome tokens e créditos) | desativado |
+| `--sem-ia` | explicita que não se deve usar IA (já é o padrão) | — |
 | `--chave-gemini` | arquivo com a chave da API Gemini | `$HOME\.chaves_ia\chave_google_gemini.key` |
 | `--chave-openai` | arquivo com a chave da API OpenAI | `$HOME\.chaves_ia\chave_openai_chatgpt.key` |
 | `--aplicar` | executa as alterações (sem ele, apenas simula) | desativado |
@@ -263,7 +267,16 @@ uv run python -m py_photos_organize_tpv -o D:\fotos -d E:\organizado --aplicar -
 uv run python -m py_photos_organize_tpv -o D:\fotos -d E:\organizado --aplicar -w o
 ```
 
-### Organizar sem IA (sem consumo de tokens/créditos)
+### IA é opt-in
+
+Sem `--com-ia` **nenhuma API é chamada** e os arquivos saem sem o bloco de
+título. As duas opções são mutuamente exclusivas: usar `--com-ia --sem-ia`
+junto é recusado, porque a intenção fica ambígua.
+
+Um título já gravado no nome nunca é perdido nesse modo (ver
+[resiliência sem IA](#resiliência-sem-ia)).
+
+### Organizar sem IA (padrão)
 
 ```bash
 uv run python -m py_photos_organize_tpv -o D:\fotos -d E:\organizado --aplicar --sem-ia

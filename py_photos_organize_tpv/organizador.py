@@ -14,6 +14,8 @@ Regras de nomeação (detalhadas em pereiras_common.nomeacao):
 - Se o arquivo JÁ tem um título no nome e não há título novo, o nome
   original é mantido (preservar_nome_original): renomear apagaria uma
   informação que só uma nova chamada de IA saberia recriar.
+- O relatório de classificação (.gemini_36_flash.md) acompanha a mídia:
+  separá-los deixaria órfã uma análise que custou dinheiro de API.
 
 Fluxo de cada arquivo (processar_arquivo):
 
@@ -50,6 +52,12 @@ DIR_RAIZ = Path(__file__).resolve().parent.parent
 
 # Tipos de arquivo que são RENOMEADOS (os demais mantêm o nome original).
 TIPOS_MIDIA = {"imagem", "video", "audio"}
+
+# Relatório de classificação gravado pelo verificar_fotos_videos ao lado de
+# cada mídia. Ele NÃO é uma mídia (não entra na varredura nem é renomeado),
+# mas precisa acompanhar o arquivo: separá-lo da foto joga fora uma análise
+# que custou dinheiro de API.
+EXT_SIDECAR = ".gemini_36_flash.md"
 
 
 @dataclass
@@ -205,6 +213,7 @@ def processar_arquivo(caminho: Path, cfg: Config, contexto, cache_titulos, cache
     acao = "MOVER" if cfg.mover else "COPIAR"
     if cfg.dry_run:
         logging.info("%s (dry-run): %s -> %s", acao, caminho, alvo)
+        levar_sidecar_junto(caminho, alvo, cfg)
         # Conta no mesmo balde da ação real, senão o resumo do dry-run de
         # --mover diria "copiados" e não bateria com a execução aplicada.
         if cfg.mover:
@@ -221,6 +230,7 @@ def processar_arquivo(caminho: Path, cfg: Config, contexto, cache_titulos, cache
             shutil.copy2(caminho, alvo)
             estats.copiados += 1
         logging.info("%s: %s -> %s", acao, caminho, alvo)
+        levar_sidecar_junto(caminho, alvo, cfg)
     except OSError as e:
         estats.erros += 1
         logging.error("ERRO ao %s %s -> %s (%s)",
@@ -249,6 +259,35 @@ def _avisar_origem_igual_destino(cfg: Config) -> bool:
         if cfg.mover else
         "Ao copiar, a coleção será DUPLICADA e uma nova execução varreria as cópias.",
     )
+    return True
+
+
+def levar_sidecar_junto(origem: Path, alvo: Path, cfg: Config) -> bool:
+    """Leva o relatório de classificação junto com a mídia.
+
+    O ``verificar_fotos_videos`` grava um ``.gemini_36_flash.md`` ao lado de
+    cada arquivo analisado. Como ele não é mídia, a varredura não o vê — e,
+    sem isto, mover a foto deixava a análise órfã na pasta antiga.
+
+    Devolve True se havia um relatório para levar. Falhas são registradas
+    mas não interrompem: a mídia já foi para o lugar certo.
+    """
+    sidecar = origem.with_name(origem.name + EXT_SIDECAR)
+    if not sidecar.is_file():
+        return False
+    destino = alvo.with_name(alvo.name + EXT_SIDECAR)
+    if cfg.dry_run:
+        logging.info("  + relatório de classificação (dry-run): %s", destino.name)
+        return True
+    try:
+        if cfg.mover:
+            shutil.move(str(sidecar), str(destino))
+        else:
+            shutil.copy2(sidecar, destino)
+        logging.info("  + relatório de classificação levado junto: %s", destino.name)
+    except OSError as e:
+        logging.warning("Relatório de classificação não acompanhou %s (%s). "
+                        "A análise segue no lugar antigo: %s", alvo.name, e, sidecar)
     return True
 
 

@@ -396,3 +396,85 @@ def test_ano_minimo_vem_do_pacote_compartilhado():
     from py_photos_organize_tpv.main import criar_parser
     args = criar_parser().parse_args([])
     assert args.min_year_discart_date == ANO_MINIMO_PADRAO
+
+
+# ----------------------------- IA só quando pedida explicitamente (--com-ia)
+
+def test_ia_desligada_por_padrao():
+    """Chamar a IA custa dinheiro: tem de ser escolha explícita."""
+    from py_photos_organize_tpv.main import criar_parser
+    args = criar_parser().parse_args([])
+    assert args.com_ia is False
+
+
+def test_com_ia_liga_a_ia():
+    from py_photos_organize_tpv.main import criar_parser
+    args = criar_parser().parse_args(["--com-ia"])
+    assert args.com_ia is True
+
+
+def test_sem_ia_continua_valido():
+    """Quem já escrevia --sem-ia não pode ser quebrado; agora é redundante."""
+    from py_photos_organize_tpv.main import criar_parser
+    args = criar_parser().parse_args(["--sem-ia"])
+    assert args.com_ia is False
+
+
+def test_com_ia_e_sem_ia_juntos_sao_recusados():
+    """A intenção fica ambígua: melhor falhar do que adivinhar."""
+    from py_photos_organize_tpv.main import criar_parser
+    with pytest.raises(SystemExit):
+        criar_parser().parse_args(["--com-ia", "--sem-ia"])
+
+
+# ------------- o relatório de classificação acompanha a mídia (não órfão)
+
+def _com_sidecar(pasta, nome, texto="praia\n====\nINDICE: 2/5\n"):
+    """Cria uma mídia e o relatório de classificação ao lado dela."""
+    from PIL import Image as _Image
+    midia = pasta / nome
+    _Image.new("RGB", (32, 32), (4, 4, 4)).save(midia)
+    (pasta / (nome + ".gemini_36_flash.md")).write_text(texto, encoding="utf-8")
+    return midia
+
+
+def test_relatorio_acompanha_a_midia_ao_copiar(tmp_path):
+    """Separar a classificação da foto joga fora o que custou dinheiro de API."""
+    origem = tmp_path / "origem"
+    origem.mkdir()
+    _com_sidecar(origem, "2019_07_04_08h09m10s-foto.jpg")
+    destino = tmp_path / "destino"
+
+    organizar(_config(origem, destino))
+
+    copiadas = list(destino.rglob("*.jpg"))
+    assert len(copiadas) == 1
+    relatorio = copiadas[0].with_name(copiadas[0].name + ".gemini_36_flash.md")
+    assert relatorio.is_file(), "o relatório ficou para trás"
+    assert "INDICE: 2/5" in relatorio.read_text(encoding="utf-8")
+
+
+def test_relatorio_acompanha_a_midia_ao_mover(tmp_path):
+    origem = tmp_path / "origem"
+    origem.mkdir()
+    _com_sidecar(origem, "2019_07_04_08h09m10s-foto.jpg")
+    destino = tmp_path / "destino"
+
+    organizar(_config(origem, destino, mover=True))
+
+    movidas = list(destino.rglob("*.jpg"))
+    assert len(movidas) == 1
+    assert movidas[0].with_name(movidas[0].name + ".gemini_36_flash.md").is_file()
+    # A mídia saiu da origem; o relatório não pode ter ficado órfão lá.
+    assert not list(origem.glob("*.gemini_36_flash.md")), "relatório órfão na origem"
+
+
+def test_midia_sem_relatorio_continua_funcionando(tmp_path):
+    """A maioria dos arquivos não tem relatório: nada pode quebrar por isso."""
+    origem = tmp_path / "origem"
+    origem.mkdir()
+    Image.new("RGB", (32, 32), (5, 5, 5)).save(origem / "2019_07_04_08h09m10s-s.jpg")
+    destino = tmp_path / "destino"
+    estats = organizar(_config(origem, destino))
+    assert estats.copiados == 1
+    assert estats.erros == 0
