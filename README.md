@@ -65,7 +65,7 @@ A extração é feita pelo pacote compartilhado
 
 | Tipo | Data | GPS |
 | --- | --- | --- |
-| Imagem (JPEG/PNG/WebP/TIFF/HEIC...) | EXIF (`DateTimeOriginal`, `DateTimeDigitized`, `DateTime`), XMP (`CreateDate`, `DateCreated`, `DateTimeOriginal`), texto PNG (`Creation Time`, `date:create`) | EXIF (IFD GPS 0x8825), XMP (`GPSLatitude`/`GPSLongitude`), fallbacks piexif/exifread |
+| Imagem (JPEG/PNG/WebP/TIFF/HEIC...) | EXIF do IFD0 **e do sub-IFD 0x8769** (`DateTimeOriginal`, `DateTimeDigitized`, `DateTime`), XMP (`CreateDate`, `DateCreated`, `DateTimeOriginal`), texto PNG (`Creation Time`, `date:create`) | EXIF (IFD GPS 0x8825), XMP (`GPSLatitude`/`GPSLongitude`), fallbacks piexif/exifread (só em JPEG/TIFF/HEIC) |
 | Vídeo (MP4/MOV/...) | `creation_time` via ffmpeg; fallback ©day (mutagen) | `location` / `©xyz` (ISO 6709) via ffmpeg; fallback ©xyz (mutagen) |
 | Áudio (MP3/M4A/OGG/Flac...) | ID3 `TDRC`/`TDOR`/`TYER`, ©day, comentários Vorbis (mutagen) | ©xyz (MP4/M4A) |
 | Fallback opcional | binário **exiftool**, se instalado (padrão forense) | idem |
@@ -126,7 +126,7 @@ Dependência principal: `pereiras-common` (via git, ver
 As chaves de API ficam **fora do repositório**, na pasta do usuário:
 
 ```
-~/.chaves_ia/chave_gemini.key            (Gemini)
+~/.chaves_ia/chave_google_gemini.key     (Gemini)
 ~/.chaves_ia/chave_openai_chatgpt.key    (OpenAI)
 ```
 
@@ -146,6 +146,13 @@ O comando mínimo exige a pasta de origem (`-o`) e a de destino (`-d`):
 ```bash
 uv run python -m py_photos_organize_tpv -o D:\fotos -d E:\organizado
 ```
+
+### Atenção: destino dentro da origem
+
+Se a pasta de destino estiver **dentro** da pasta de origem (inclusive
+quando `-o` e `-d` são a mesma pasta), o programa emite um aviso no log:
+ao copiar, a coleção é duplicada e uma execução seguinte varreria também
+as cópias. Prefira um destino fora da origem, ou use `--mover`.
 
 ### Recomendação: comece com um dry-run
 
@@ -252,9 +259,10 @@ uv run python -m py_photos_organize_tpv -o D:\fotos -d E:\organizado --chave-gem
 uv run pytest
 ```
 
-- `tests/test_organizador.py`: integração (varredura, sufixos, destino,
-  dedup de nomes, dry-run, títulos/cache de IA com dublês e regra de
-  "outros arquivos não renomeados").
+- `tests/test_organizador.py`: 25 testes de integração (varredura, sufixos,
+  destino, dedup de nomes, dry-run — inclusive o resumo de `--mover` —,
+  aviso de destino dentro da origem, leitura única do SHA-256 por arquivo,
+  títulos/cache de IA com dublês e regra de "outros arquivos não renomeados").
 - Os testes de nomeação, metadados, geolocalização, hash e IA vivem no
   pacote `pereiras-common` (fonte única das funções).
 
@@ -269,8 +277,9 @@ uv run pytest
 
 - [ ] Usar `analisar_foto` (pereiras_common.ia) também para vídeos quando
       houver suporte a frames no pacote compartilhado.
-- [ ] Migrar `sha256_arquivo` e o cache de títulos para `pereiras-common`
-      (reaproveitamento no verificar_fotos_videos).
+- [x] Migrar `sha256_arquivo` e o cache de títulos para `pereiras-common`
+      (reaproveitamento no verificar_fotos_videos). **Feito** — o módulo
+      `ia.py` agora delega a `pereiras_common.uteis`.
 - [ ] Opção de usar o nível de legalidade da análise para alertar arquivos
       de nível 3+ durante a organização.
 - [ ] CI (GitHub Actions) rodando os testes a cada PR.

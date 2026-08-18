@@ -26,8 +26,6 @@ arquivo é gerado como YYYY_MM_DD_HHhMMmSSs-YYYY_MM_DD_HHhMMmSSs-cidade-hash6.ex
 """
 
 import base64
-import hashlib
-import json
 import logging
 import re
 import shutil
@@ -43,8 +41,11 @@ from pereiras_common.ia import ErroAnaliseIA, analisar_foto
 from pereiras_common.uteis import (
     CHAVE_GEMINI_PADRAO,
     CHAVE_OPENAI_PADRAO,
+    carregar_cache_jsonl,
+    gravar_cache_jsonl,
     ler_chave,
-    para_snake_case,
+    normalizar_titulo,
+    sha256_arquivo,
 )
 
 try:
@@ -76,58 +77,18 @@ PROMPT_TITULO = (
 )
 
 
-def sha256_arquivo(caminho):
-    """Calcula o SHA-256 do conteúdo do arquivo (em blocos de 1 MB).
-
-    Usado como chave do cache de títulos: arquivos idênticos recebem o
-    mesmo título sem nova chamada à API. Retorna None se o arquivo não
-    puder ser lido.
-    """
-    h = hashlib.sha256()
-    try:
-        with open(caminho, "rb") as f:
-            for chunk in iter(lambda: f.read(1024 * 1024), b""):
-                h.update(chunk)
-    except OSError:
-        return None
-    return h.hexdigest()
-
-
 def carregar_cache_titulos(cache_path=None):
-    """Lê o cache de títulos (JSONL) do disco e devolve um dict {sha256: registro}.
+    """Lê o cache de títulos (JSONL) e devolve {sha256: registro}.
 
-    Formato do arquivo: uma linha JSON por registro. Linhas corrompidas
-    são ignoradas (o cache é um atalho, não uma fonte de verdade).
+    Delegado a ``pereiras_common.uteis.carregar_cache_jsonl`` — a mesma
+    implementação usada pelo cache de classificações do verificar_fotos_videos.
     """
-    path = Path(cache_path) if cache_path else CACHE_TITULOS_PADRAO
-    cache = {}
-    if not path.exists():
-        return cache
-    try:
-        with open(path, encoding="utf-8") as f:
-            for linha in f:
-                linha = linha.strip()
-                if not linha:
-                    continue
-                try:
-                    reg = json.loads(linha)
-                except json.JSONDecodeError:
-                    continue
-                if reg.get("sha256"):
-                    cache[reg["sha256"]] = reg
-    except OSError:
-        pass
-    return cache
+    return carregar_cache_jsonl(Path(cache_path) if cache_path else CACHE_TITULOS_PADRAO)
 
 
 def gravar_cache_titulos(registro, cache_path=None):
     """Anexa um registro ao cache de títulos (append-only, formato JSONL)."""
-    path = Path(cache_path) if cache_path else CACHE_TITULOS_PADRAO
-    try:
-        with open(path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(registro, ensure_ascii=False) + "\n")
-    except OSError:
-        pass
+    gravar_cache_jsonl(registro, Path(cache_path) if cache_path else CACHE_TITULOS_PADRAO)
 
 
 def criar_client_gemini(chave):
@@ -153,11 +114,13 @@ def verificar_gemini(client):
     Se falhar, o cliente é considerado indisponível e não será usado.
     """
     try:
-        r = client.models.generate_content(
+        client.models.generate_content(
             model=MODELO_GEMINI, contents="Responda apenas: ok",
             config=types.GenerateContentConfig(max_output_tokens=20),
         )
-        return True if (r.text or "") else True
+        # Resposta vazia ainda é sucesso: a API respondeu, então a chave e o
+        # modelo estão válidos (o limite baixo de tokens pode zerar o texto).
+        return True
     except Exception as e:
         logging.error("Falha no teste pré-voo do Gemini: %s", e)
         return False
@@ -223,19 +186,6 @@ def criar_contexto_ia(chave_gemini_path=None, chave_openai_path=None):
                         "({data1}-{data2}-{cidade}-{hash6}{ext}).")
         return None
     return contexto
-
-
-def normalizar_titulo(titulo):
-    """Limpa a resposta da IA e limita a 5 palavras em snake_case.
-
-    Retorna "" quando a resposta não produzir um título válido.
-    """
-    t = str(titulo or "").strip().strip('"`*#')
-    palavras = t.split()
-    if len(palavras) > 5:
-        t = " ".join(palavras[:5])
-    t = para_snake_case(t)
-    return t if t != "sem_nome" else ""
 
 
 def extrair_frames_video(caminho, n_frames=5):
@@ -376,12 +326,14 @@ def _titulo_imagem_compartilhado(contexto, caminho):
     return titulo
 
 
-def obter_titulo(caminho, tipo, contexto, cache, cache_path=None, n_frames=5):
+def obter_titulo(caminho, tipo, contexto, cache, cache_path=None, n_frames=5,
+                 sha=None):
     """Título em snake_case gerado por IA (com cache SHA-256).
 
     - Imagens: análise pelo pacote compartilhado (OpenAI -> Gemini).
     - Vídeos: frames extraídos por ffmpeg (Gemini -> OpenAI).
     - Cache: arquivos idênticos (SHA-256) reutilizam o título salvo.
+    - ``sha``: SHA-256 já calculado pelo chamador (opcional).
 
     Retorna "" quando a IA está desativada (--sem-ia) ou indisponível
     (sem chave, sem conectividade, falha nas chamadas). Nesse caso o
@@ -392,7 +344,10 @@ def obter_titulo(caminho, tipo, contexto, cache, cache_path=None, n_frames=5):
     """
     if not contexto:
         return ""
-    sha = sha256_arquivo(caminho)
+    # ``sha`` já calculado pelo chamador evita uma segunda leitura completa
+    # do arquivo (o organizador precisa do mesmo hash para o nome).
+    if sha is None:
+        sha = sha256_arquivo(caminho)
     if sha and sha in cache and cache[sha].get("titulo"):
         return cache[sha]["titulo"]
     titulo = ""

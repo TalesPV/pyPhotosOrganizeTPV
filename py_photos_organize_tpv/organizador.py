@@ -34,7 +34,7 @@ from pathlib import Path
 
 from pereiras_common import geolocalizacao, metadados
 from pereiras_common.nomeacao import montar_nome_midia, montar_pasta_destino
-from pereiras_common.uteis import hash_curto_6
+from pereiras_common.uteis import hash_curto_6, sha256_arquivo
 
 from . import ia
 
@@ -92,15 +92,14 @@ def coletar_arquivos(origem: Path) -> list[Path]:
 
 
 def classificar_tipo_arquivo(caminho: Path) -> str:
-    """Classifica o arquivo em "imagem", "video", "audio" ou "outro"."""
-    ext = caminho.suffix.lower()
-    if ext in metadados.EXTS_IMAGEM:
-        return "imagem"
-    if ext in metadados.EXTS_VIDEO:
-        return "video"
-    if ext in metadados.EXTS_AUDIO:
-        return "audio"
-    return "outro"
+    """Classifica o arquivo em "imagem", "video", "audio" ou "outro".
+
+    Delega a ``pereiras_common.metadados.classificar_tipo`` (fonte única
+    das extensões) e colapsa em "outro" tudo que não é mídia — que é a
+    única distinção que interessa aqui: só mídias são renomeadas.
+    """
+    tipo = metadados.classificar_tipo(caminho)
+    return tipo if tipo in TIPOS_MIDIA else "outro"
 
 
 def proximo_livre(alvo: Path) -> Path:
@@ -113,7 +112,8 @@ def proximo_livre(alvo: Path) -> Path:
 
 
 def _decidir_novo_nome(caminho: Path, tipo: str, d_min, d_max, gps,
-                       cfg: Config, contexto, cache_titulos, cache_gps) -> str:
+                       cfg: Config, contexto, cache_titulos, cache_gps,
+                       sha: str | None = None) -> str:
     """Define o nome alvo de uma MÍDIA (título por IA + cidade + hash).
 
     Retorna o nome pronto ou None quando não há data (o chamador decide
@@ -122,13 +122,14 @@ def _decidir_novo_nome(caminho: Path, tipo: str, d_min, d_max, gps,
     if d_min is None:
         return None
     titulo = ia.obter_titulo(caminho, tipo, contexto["ia"], cache_titulos,
-                             contexto["cache_titulos_path"], cfg.frames)
+                             contexto["cache_titulos_path"], cfg.frames, sha=sha)
     cidade = (geolocalizacao.cidade_ou_coordenadas(gps[0], gps[1], cache_gps,
                                                    contexto["cache_gps_path"])
               if gps else "sem_gps")
     # Hash curto do conteúdo: identifica o arquivo e evita sobrescrita
-    # de arquivos diferentes tirados no mesmo segundo.
-    hash6 = hash_curto_6(caminho)
+    # de arquivos diferentes tirados no mesmo segundo. Reaproveita o
+    # SHA-256 já calculado para o cache: uma leitura por arquivo, não duas.
+    hash6 = hash_curto_6(caminho, digest=sha)
     novo_nome = montar_nome_midia(d_min, d_max, cidade,
                                   hash6=hash6, titulo=titulo, extensao=caminho.suffix)
     if novo_nome is None:
@@ -162,8 +163,11 @@ def processar_arquivo(caminho: Path, cfg: Config, contexto, cache_titulos, cache
     pasta = montar_pasta_destino(cfg.destino, d_min, cfg.folders_mask, sufixo)
 
     if tipo in TIPOS_MIDIA and cfg.renomear:
+        # Uma única leitura do conteúdo serve ao cache de títulos (SHA-256
+        # completo) e ao bloco hash6 do nome (mesmo digest, base 36).
+        sha = sha256_arquivo(caminho)
         novo_nome = _decidir_novo_nome(caminho, tipo, d_min, d_max, gps, cfg,
-                                       contexto, cache_titulos, cache_gps)
+                                       contexto, cache_titulos, cache_gps, sha)
     else:
         novo_nome = None
     if novo_nome is None:
@@ -188,7 +192,12 @@ def processar_arquivo(caminho: Path, cfg: Config, contexto, cache_titulos, cache
     acao = "MOVER" if cfg.mover else "COPIAR"
     if cfg.dry_run:
         logging.info("%s (dry-run): %s -> %s", acao, caminho, alvo)
-        estats.copiados += 1
+        # Conta no mesmo balde da ação real, senão o resumo do dry-run de
+        # --mover diria "copiados" e não bateria com a execução aplicada.
+        if cfg.mover:
+            estats.movidos += 1
+        else:
+            estats.copiados += 1
         return
     try:
         pasta.mkdir(parents=True, exist_ok=True)
@@ -205,6 +214,31 @@ def processar_arquivo(caminho: Path, cfg: Config, contexto, cache_titulos, cache
                       "mover" if cfg.mover else "copiar", caminho, alvo, e)
 
 
+def _avisar_origem_igual_destino(cfg: Config) -> bool:
+    """Avisa quando o destino fica dentro da origem; devolve True se for o caso.
+
+    Copiar para dentro da própria pasta de origem duplica a coleção (e uma
+    segunda execução varreria também as cópias). Mover é seguro, mas ainda
+    assim vale o aviso, porque as subpastas de data nascem dentro da origem.
+    """
+    try:
+        origem = cfg.origem.resolve()
+        destino = cfg.destino.resolve()
+    except OSError:
+        return False
+    if not destino.is_relative_to(origem):
+        return False
+    logging.warning(
+        "ATENÇÃO: a pasta de destino (%s) está DENTRO da pasta de origem (%s). "
+        "%s Considere um destino fora da origem.",
+        destino, origem,
+        "Ao mover, as subpastas de data serão criadas dentro da própria origem."
+        if cfg.mover else
+        "Ao copiar, a coleção será DUPLICADA e uma nova execução varreria as cópias.",
+    )
+    return True
+
+
 def organizar(cfg: Config) -> Estatisticas:
     """Executa o organizador completo na pasta de origem.
 
@@ -213,6 +247,7 @@ def organizar(cfg: Config) -> Estatisticas:
     - Devolve as estatísticas (total, copiados, movidos, ignorados, erros).
     """
     estats = Estatisticas()
+    _avisar_origem_igual_destino(cfg)
     arquivos = coletar_arquivos(cfg.origem)
     if cfg.batch > 0:
         arquivos = arquivos[:cfg.batch]

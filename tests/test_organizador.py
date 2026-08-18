@@ -269,3 +269,60 @@ def test_cidade_ou_coordenadas_sem_resposta(monkeypatch):
     monkeypatch.setattr(geolocalizacao, "cidade_por_gps", lambda lat, lon, cache, cache_path: None)
     resultado = geolocalizacao.cidade_ou_coordenadas(-23.55, -46.633333, {})
     assert resultado == "-23_5500_-46_6333"
+
+
+# ------------------------------------- dry-run com --mover conta como movido
+
+def test_dry_run_mover_conta_como_movido(origem_com_imagens, tmp_path):
+    """No dry-run de --mover o resumo precisa dizer "movidos", não "copiados"."""
+    destino = tmp_path / "destino"
+    cfg = _config(origem_com_imagens, destino, dry_run=True, mover=True)
+    estats = organizar(cfg)
+    assert estats.movidos == 3
+    assert estats.copiados == 0
+    # Nada pode ter saído do lugar num dry-run.
+    assert sum(1 for _ in origem_com_imagens.rglob("*.jpg")) == 3
+
+
+# ---------------------------------- origem igual ao destino é sinalizado
+
+def test_organizar_avisa_quando_origem_e_destino_sao_a_mesma_pasta(
+        origem_com_imagens, caplog):
+    """Copiar dentro da própria origem duplica a coleção: precisa avisar."""
+    cfg = _config(origem_com_imagens, origem_com_imagens, dry_run=True)
+    with caplog.at_level("WARNING"):
+        organizar(cfg)
+    assert any("origem" in r.message.lower() and "destino" in r.message.lower()
+               for r in caplog.records), "nenhum aviso sobre origem == destino"
+
+
+# ------------------------- SHA-256 calculado uma única vez por arquivo
+
+def test_obter_titulo_aceita_sha_ja_calculado(origem_com_imagens, tmp_path, monkeypatch):
+    """Com o SHA-256 pronto, obter_titulo não relê o arquivo do disco."""
+    foto = origem_com_imagens / "foto_praia.jpg"
+    cache_path = tmp_path / "cache.jsonl"
+    sha = ia.sha256_arquivo(foto)
+
+    def _proibido(*_a, **_k):
+        raise AssertionError("sha256_arquivo foi chamado de novo (leitura duplicada)")
+
+    monkeypatch.setattr(ia, "sha256_arquivo", _proibido)
+    cache = {sha: {"sha256": sha, "titulo": "praia_ao_por_do_sol"}}
+    titulo = ia.obter_titulo(foto, "imagem", {"chave_openai": "x"}, cache,
+                             str(cache_path), sha=sha)
+    assert titulo == "praia_ao_por_do_sol"
+
+
+def test_organizador_nao_le_o_arquivo_duas_vezes(origem_com_imagens, tmp_path, monkeypatch):
+    """O organizador calcula o SHA-256 uma vez e reaproveita no hash curto."""
+    from py_photos_organize_tpv import organizador as org
+
+    chamadas = []
+    original = org.sha256_arquivo
+    monkeypatch.setattr(org, "sha256_arquivo",
+                        lambda c: (chamadas.append(c), original(c))[1])
+    destino = tmp_path / "destino"
+    organizar(_config(origem_com_imagens, destino))
+    assert len(chamadas) == len(set(map(str, chamadas))), \
+        f"mesmo arquivo hasheado mais de uma vez: {chamadas}"
