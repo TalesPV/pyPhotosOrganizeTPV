@@ -358,3 +358,41 @@ def test_sem_ia_ainda_renomeia_arquivo_sem_titulo(tmp_path):
     assert len(gerados) == 1
     assert gerados[0] != nome, "deveria ter ganhado o bloco hash6"
     assert gerados[0].startswith("2019_07_04_08h09m10s-2019_07_04_08h09m10s-sem_gps-")
+
+
+# ------------------- padrão de segurança: simula por padrão, age com --aplicar
+
+def test_cli_simula_por_padrao(origem_com_imagens, tmp_path):
+    """Sem --aplicar nada pode ser escrito: mesmo padrão do renomear_arquivos.py."""
+    from py_photos_organize_tpv.main import criar_parser
+    destino = tmp_path / "destino"
+    args = criar_parser().parse_args(["-o", str(origem_com_imagens), "-d", str(destino)])
+    assert args.aplicar is False
+    cfg = _config(origem_com_imagens, destino, dry_run=not args.aplicar)
+    organizar(cfg)
+    assert not destino.exists() or not any(destino.rglob("*.jpg"))
+
+
+def test_cli_age_com_aplicar(origem_com_imagens, tmp_path):
+    from py_photos_organize_tpv.main import criar_parser
+    destino = tmp_path / "destino"
+    args = criar_parser().parse_args(["-o", str(origem_com_imagens),
+                                      "-d", str(destino), "--aplicar"])
+    assert args.aplicar is True
+    organizar(_config(origem_com_imagens, destino, dry_run=not args.aplicar))
+    assert len(list(destino.rglob("*.jpg"))) == 3
+
+
+def test_cli_aceita_dry_run_como_compatibilidade(origem_com_imagens, tmp_path):
+    """--dry-run continua válido (agora é o padrão) para não quebrar scripts antigos."""
+    from py_photos_organize_tpv.main import criar_parser
+    args = criar_parser().parse_args(["-o", str(origem_com_imagens), "--dry-run"])
+    assert args.aplicar is False
+
+
+def test_ano_minimo_vem_do_pacote_compartilhado():
+    """Um só valor para os três programas: sem 1977 num e 1980 noutro."""
+    from pereiras_common.nomeacao import ANO_MINIMO_PADRAO
+    from py_photos_organize_tpv.main import criar_parser
+    args = criar_parser().parse_args([])
+    assert args.min_year_discart_date == ANO_MINIMO_PADRAO

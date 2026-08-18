@@ -28,6 +28,7 @@ from pathlib import Path
 
 import coloredlogs
 from pereiras_common import metadados
+from pereiras_common.nomeacao import ANO_MINIMO_PADRAO
 from pereiras_common.uteis import expandir_caminho
 
 from .organizador import Config, organizar
@@ -58,8 +59,10 @@ def criar_parser():
                     help="se o arquivo já existe no destino: d=duplicar, i=ignorar, o=sobrescrever")
     ap.add_argument("-q", "--batch-quantity-files", type=int, default=0,
                     help="processa no máximo N arquivos (0 = todos)")
-    ap.add_argument("-y", "--min-year-discart-date", type=int, default=1980,
-                    help="ignora datas anteriores a este ano")
+    ap.add_argument("-y", "--min-year-discart-date", type=int,
+                    default=ANO_MINIMO_PADRAO,
+                    help=f"ignora datas anteriores a este ano "
+                         f"(padrão: {ANO_MINIMO_PADRAO}, o mesmo dos outros programas)")
     ap.add_argument("-s", "--min-size-escape-low-resolution", type=int, default=100000,
                     help="arquivos menores que este tamanho (bytes) ganham sufixo low_resolution")
     ap.add_argument("-g", "--generate-folder-sufix", action=argparse.BooleanOptionalAction,
@@ -77,8 +80,13 @@ def criar_parser():
     ap.add_argument("--chave-openai", type=str, default=None,
                     help="arquivo com a chave da API OpenAI "
                          r"(padrão: $HOME\.chaves_ia\chave_openai_chatgpt.key)")
+    ap.add_argument("--aplicar", action="store_true",
+                    help="executa as alterações (padrão: apenas simula, "
+                         "sem alterar nada no disco)")
+    # Mantido por compatibilidade com scripts e anotações antigas: simular
+    # já é o padrão, então a opção existe mas não muda mais nada.
     ap.add_argument("--dry-run", action="store_true",
-                    help="apenas mostra o que seria feito, sem alterar nada")
+                    help=argparse.SUPPRESS)
     ap.add_argument("--mover", action="store_true",
                     help="move os arquivos em vez de copiá-los")
     ap.add_argument("--frames", type=int, default=5,
@@ -116,8 +124,8 @@ def main(argv=None):
     destino = expandir_caminho(args.files_destination)
     if not origem.is_dir():
         sys.exit(f"ERRO: pasta de origem não encontrada: {origem}")
-    if args.dry_run:
-        logging.info("MODO DRY-RUN: nada será alterado.")
+    if not args.aplicar:
+        logging.info("MODO SIMULAÇÃO: nada será alterado. Use --aplicar para executar.")
 
     metadados.registrar_heif()
 
@@ -132,7 +140,7 @@ def main(argv=None):
         gerar_sufixo=args.generate_folder_sufix,
         renomear=args.rename_file,
         usar_ia=not args.sem_ia,
-        dry_run=args.dry_run,
+        dry_run=not args.aplicar,
         mover=args.mover,
         frames=args.frames,
         chave_gemini=args.chave_gemini,
@@ -148,7 +156,7 @@ def main(argv=None):
     logging.info("=" * 60)
     logging.info("RESUMO (%s): %d total | %d copiados | %d movidos | %d ignorados | "
                  "%d sem data | %d erros",
-                 "DRY-RUN" if cfg.dry_run else "APLICADO",
+                 "SIMULAÇÃO" if cfg.dry_run else "APLICADO",
                  estats.total, estats.copiados, estats.movidos,
                  estats.ignorados, estats.sem_data, estats.erros)
     logging.info("Log completo: %s", arquivo_log)

@@ -128,6 +128,20 @@ uv sync
 Dependência principal: `pereiras-common` (via git, ver
 [pereiras-scripts](https://github.com/TalesPV/pereiras-scripts)).
 
+### exiftool (opcional, recomendado)
+
+O [exiftool](https://exiftool.org/) é o padrão de referência em leitura de
+metadados e serve de **fallback** quando Pillow, ffmpeg e mutagen não acham
+data ou GPS. Sem ele o programa funciona, apenas com menos alternativas.
+
+```powershell
+winget install --id OliverBetz.ExifTool --exact
+```
+
+O caminho é resolvido no momento do `import`: depois de instalar, abra um
+terminal novo para que o programa o enxergue.
+
+
 ## Chaves de IA (segurança)
 
 As chaves de API ficam **fora do repositório**, na pasta do usuário
@@ -165,14 +179,22 @@ quando `-o` e `-d` são a mesma pasta), o programa emite um aviso no log:
 ao copiar, a coleção é duplicada e uma execução seguinte varreria também
 as cópias. Prefira um destino fora da origem, ou use `--mover`.
 
-### Recomendação: comece com um dry-run
+### Simula por padrão; `--aplicar` executa
 
-O `--dry-run` mostra exatamente o que seria feito (copiar/mover e os
-novos nomes) **sem alterar nada no disco**:
+Os três programas do conjunto seguem a mesma regra: **nada é alterado sem
+`--aplicar`**. Sem a flag, o programa mostra exatamente o que faria
+(copiar/mover e os novos nomes) sem tocar no disco.
 
 ```bash
-uv run python -m py_photos_organize_tpv -o D:\fotos -d E:\organizado --dry-run
+# simula (padrão)
+uv run python -m py_photos_organize_tpv -o D:\fotos -d E:\organizado
+
+# executa de verdade
+uv run python -m py_photos_organize_tpv -o D:\fotos -d E:\organizado --aplicar
 ```
+
+`--dry-run` continua sendo aceito para não quebrar scripts antigos — hoje
+é redundante, porque simular virou o padrão.
 
 Cada execução grava um log em `logs/log_py_photos_organize_tpv_<data>.log`.
 
@@ -185,7 +207,7 @@ Cada execução grava um log em `logs/log_py_photos_organize_tpv_<data>.log`.
 | `-f, --folders` | máscara strftime das subpastas de data | `%Y_%m` |
 | `-w, --overwrite` | `d` duplicar, `i` ignorar, `o` sobrescrever | `d` |
 | `-q, --batch-quantity-files` | processa no máximo N arquivos (`0` = todos) | `0` |
-| `-y, --min-year-discart-date` | ignora datas anteriores a este ano | `1980` |
+| `-y, --min-year-discart-date` | ignora datas anteriores a este ano (mesmo valor nos três programas) | `1980` |
 | `-s, --min-size-escape-low-resolution` | sufixo `low_resolution` abaixo deste tamanho (bytes) | `100000` |
 | `-g, --generate-folder-sufix` | sufixo de pasta por origem (`videos`, `social_media`, ...) | ativado |
 | `-n, --rename-file` | renomeia para o formato alvo | ativado |
@@ -193,7 +215,7 @@ Cada execução grava um log em `logs/log_py_photos_organize_tpv_<data>.log`.
 | `--sem-ia` | desativa as APIs de IA; arquivos sem o bloco de título | desativado |
 | `--chave-gemini` | arquivo com a chave da API Gemini | `$HOME\.chaves_ia\chave_google_gemini.key` |
 | `--chave-openai` | arquivo com a chave da API OpenAI | `$HOME\.chaves_ia\chave_openai_chatgpt.key` |
-| `--dry-run` | apenas mostra o que seria feito, sem alterar nada | desativado |
+| `--aplicar` | executa as alterações (sem ele, apenas simula) | desativado |
 | `--mover` | move os arquivos em vez de copiá-los | desativado |
 | `--frames` | frames extraídos por vídeo para a IA | `5` |
 
@@ -205,63 +227,65 @@ As flags booleanas aceitam a forma negativa, ex.: `--no-generate-folder-sufix`,
 ### Organizar uma pasta completa (modo padrão: copia)
 
 ```bash
-uv run python -m py_photos_organize_tpv -o D:\fotos -d E:\organizado
+uv run python -m py_photos_organize_tpv -o D:\fotos -d E:\organizado --aplicar
 ```
 
 ### Testar com um lote pequeno (10 arquivos) antes de rodar tudo
 
+Sem `--aplicar` já é simulação:
+
 ```bash
-uv run python -m py_photos_organize_tpv -o D:\fotos -d E:\organizado -q 10 --dry-run
+uv run python -m py_photos_organize_tpv -o D:\fotos -d E:\organizado -q 10
 ```
 
 ### Mover (em vez de copiar) mantendo pasta por ano/mês
 
 ```bash
-uv run python -m py_photos_organize_tpv -o D:\fotos -d E:\organizado --mover
+uv run python -m py_photos_organize_tpv -o D:\fotos -d E:\organizado --aplicar --mover
 ```
 
 ### Agrupar por ano/mês/dia e sem sufixo de origem
 
 ```bash
-uv run python -m py_photos_organize_tpv -o D:\fotos -d E:\organizado -f "%Y_%m_%d" --no-generate-folder-sufix
+uv run python -m py_photos_organize_tpv -o D:\fotos -d E:\organizado --aplicar -f "%Y_%m_%d" --no-generate-folder-sufix
 ```
 
 ### Controlar o que acontece com arquivos que já existem no destino
 
 ```bash
 # Duplicar com sufixo _2, _3, ... (padrão)
-uv run python -m py_photos_organize_tpv -o D:\fotos -d E:\organizado -w d
+uv run python -m py_photos_organize_tpv -o D:\fotos -d E:\organizado --aplicar -w d
 
 # Ignorar quem já existe no destino
-uv run python -m py_photos_organize_tpv -o D:\fotos -d E:\organizado -w i
+uv run python -m py_photos_organize_tpv -o D:\fotos -d E:\organizado --aplicar -w i
 
 # Sobrescrever o arquivo do destino
-uv run python -m py_photos_organize_tpv -o D:\fotos -d E:\organizado -w o
+uv run python -m py_photos_organize_tpv -o D:\fotos -d E:\organizado --aplicar -w o
 ```
 
 ### Organizar sem IA (sem consumo de tokens/créditos)
 
 ```bash
-uv run python -m py_photos_organize_tpv -o D:\fotos -d E:\organizado --sem-ia
+uv run python -m py_photos_organize_tpv -o D:\fotos -d E:\organizado --aplicar --sem-ia
 ```
 
 ### Ajustar regras de data e resolução
 
 ```bash
 # Ignorar arquivos com data anterior a 2000 e marcar low_resolution abaixo de 50 kB
-uv run python -m py_photos_organize_tpv -o D:\fotos -d E:\organizado -y 2000 -s 50000
+uv run python -m py_photos_organize_tpv -o D:\fotos -d E:\organizado --aplicar -y 2000 -s 50000
 ```
 
 ### Manter o nome original, apenas reorganizando as pastas
 
 ```bash
-uv run python -m py_photos_organize_tpv -o D:\fotos -d E:\organizado --no-rename-file
+uv run python -m py_photos_organize_tpv -o D:\fotos -d E:\organizado --aplicar --no-rename-file
 ```
 
 ### Usar arquivos de chave de IA em outro local
 
 ```bash
-uv run python -m py_photos_organize_tpv -o D:\fotos -d E:\organizado --chave-gemini C:\chaves\gemini.key --chave-openai C:\chaves\openai.key
+uv run python -m py_photos_organize_tpv -o D:\fotos -d E:\organizado --aplicar --chave-gemini C:\chaves\gemini.key --chave-openai C:\chaves\openai.key
 ```
 
 ## Testes (TDD)

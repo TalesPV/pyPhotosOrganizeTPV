@@ -9,7 +9,7 @@ dependencies = [
     "google-genai>=2.18.1",
     "imageio-ffmpeg>=0.6.0",
     "openai>=3.1.0",
-    "pereiras-common @ git+https://github.com/TalesPV/pereiras-scripts.git@main",
+    "pereiras-common @ git+https://github.com/TalesPV/pereiras-scripts.git@v0.3.0",
     "pillow>=12.3.0",
 ]
 

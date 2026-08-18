@@ -40,8 +40,7 @@ from google.genai import types
 from openai import OpenAI
 from pereiras_common.ia import ErroAnaliseIA, analisar_foto
 from pereiras_common.uteis import (
-    CHAVE_GEMINI_PADRAO,
-    CHAVE_OPENAI_PADRAO,
+    DIR_CHAVES_PADRAO,
     carregar_cache_jsonl,
     gravar_cache_jsonl,
     ler_chave,
@@ -149,9 +148,10 @@ def criar_contexto_ia(chave_gemini_path=None, chave_openai_path=None):
 
     - Parâmetros ``chave_gemini_path``/``chave_openai_path`` (vindos da
       linha de comando) têm prioridade.
-    - Sem parâmetro, usa o padrão ``$HOME\.chaves_ia\chave_google_gemini.key``
-      e ``$HOME\.chaves_ia\chave_openai_chatgpt.key``. Os caminhos aceitam
-      ``~``, ``$HOME`` e ``%USERPROFILE%``.
+    - Sem parâmetro, procura na pasta ``$HOME\.chaves_ia\`` um arquivo cujo
+      nome cite o provedor — ``chave_google_gemini.key``,
+      ``CHAVE_GOOGLE_GEMINI.txt``, ``._CHAVE_GOOGLE_GEMINI.txt`` etc.
+    - Os caminhos aceitam ``~``, ``$HOME`` e ``%USERPROFILE%``.
 
     Retorna um dict com as chaves "gemini" e/ou "openai" (clientes que
     passaram no pré-voo) e "chave_gemini"/"chave_openai" (texto das
@@ -159,7 +159,9 @@ def criar_contexto_ia(chave_gemini_path=None, chave_openai_path=None):
     None se nenhuma IA estiver disponível.
     """
     contexto = {}
-    chave_gemini = ler_chave(chave_gemini_path or CHAVE_GEMINI_PADRAO)
+    # Sem --chave-gemini, procura na pasta padrão aceitando variações de nome
+    # (chave_google_gemini.key, CHAVE_GOOGLE_GEMINI.txt, ._CHAVE_...txt).
+    chave_gemini = ler_chave(chave_gemini_path or DIR_CHAVES_PADRAO, tipo="gemini")
     if chave_gemini:
         try:
             cliente = criar_client_gemini(chave_gemini)
@@ -171,7 +173,7 @@ def criar_contexto_ia(chave_gemini_path=None, chave_openai_path=None):
                 logging.warning("IA Gemini indisponível (pré-voo falhou).")
         except Exception as e:
             logging.warning("Não foi possível criar o cliente Gemini: %s", e)
-    chave_openai = ler_chave(chave_openai_path or CHAVE_OPENAI_PADRAO)
+    chave_openai = ler_chave(chave_openai_path or DIR_CHAVES_PADRAO, tipo="openai")
     if chave_openai:
         try:
             cliente = criar_client_openai(chave_openai)
