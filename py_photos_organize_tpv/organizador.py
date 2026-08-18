@@ -11,6 +11,9 @@ Regras de nomeação (detalhadas em pereiras_common.nomeacao):
   arquivos (office, PDFs etc.) mantêm o nome original.
 - Sem IA (ou com falha), o bloco {titulo} é omitido; o hash permanece
   (identifica o conteúdo e evita sobrescrita de arquivos do mesmo horário).
+- Se o arquivo JÁ tem um título no nome e não há título novo, o nome
+  original é mantido (preservar_nome_original): renomear apagaria uma
+  informação que só uma nova chamada de IA saberia recriar.
 
 Fluxo de cada arquivo (processar_arquivo):
 
@@ -33,7 +36,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from pereiras_common import geolocalizacao, metadados
-from pereiras_common.nomeacao import montar_nome_midia, montar_pasta_destino
+from pereiras_common.nomeacao import (
+    montar_nome_midia,
+    montar_pasta_destino,
+    preservar_nome_original,
+)
 from pereiras_common.uteis import hash_curto_6, sha256_arquivo
 
 from . import ia
@@ -130,6 +137,12 @@ def _decidir_novo_nome(caminho: Path, tipo: str, d_min, d_max, gps,
     # de arquivos diferentes tirados no mesmo segundo. Reaproveita o
     # SHA-256 já calculado para o cache: uma leitura por arquivo, não duas.
     hash6 = hash_curto_6(caminho, digest=sha)
+    # Sem título novo (IA desativada ou indisponível), o nome alvo perderia o
+    # título que uma execução anterior já gravou no nome. Nesse caso o nome
+    # original carrega MAIS informação: mantemos ele.
+    if not titulo and preservar_nome_original(caminho.name, d_min, d_max, cidade, hash6):
+        logging.info("TÍTULO PRESERVADO (nome original mantido): %s", caminho.name)
+        return caminho.name
     novo_nome = montar_nome_midia(d_min, d_max, cidade,
                                   hash6=hash6, titulo=titulo, extensao=caminho.suffix)
     if novo_nome is None:

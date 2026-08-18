@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Interface de linha de comando do pyPhotosOrganizeTPV.
+r"""Interface de linha de comando do pyPhotosOrganizeTPV.
 
 Organiza fotos, vídeos e áudios em subpastas por data, gerando arquivos
 no formato padrão de mídia:
@@ -28,6 +28,7 @@ from pathlib import Path
 
 import coloredlogs
 from pereiras_common import metadados
+from pereiras_common.uteis import expandir_caminho
 
 from .organizador import Config, organizar
 
@@ -72,10 +73,10 @@ def criar_parser():
                          "arquivos gerados sem o bloco de título")
     ap.add_argument("--chave-gemini", type=str, default=None,
                     help="arquivo com a chave da API Gemini "
-                         "(padrão: ~/.chaves_ia/chave_google_gemini.key)")
+                         r"(padrão: $HOME\.chaves_ia\chave_google_gemini.key)")
     ap.add_argument("--chave-openai", type=str, default=None,
                     help="arquivo com a chave da API OpenAI "
-                         "(padrão: ~/.chaves_ia/chave_openai_chatgpt.key)")
+                         r"(padrão: $HOME\.chaves_ia\chave_openai_chatgpt.key)")
     ap.add_argument("--dry-run", action="store_true",
                     help="apenas mostra o que seria feito, sem alterar nada")
     ap.add_argument("--mover", action="store_true",
@@ -109,8 +110,10 @@ def main(argv=None):
     )
     coloredlogs.install(level="INFO", fmt="%(asctime)s [%(levelname)s] %(message)s")
 
-    origem = Path(args.files_orign)
-    destino = Path(args.files_destination)
+    # expandir_caminho aceita ~, $HOME e %USERPROFILE% (o PowerShell não
+    # expande $HOME quando o argumento vem entre aspas simples).
+    origem = expandir_caminho(args.files_orign)
+    destino = expandir_caminho(args.files_destination)
     if not origem.is_dir():
         sys.exit(f"ERRO: pasta de origem não encontrada: {origem}")
     if args.dry_run:

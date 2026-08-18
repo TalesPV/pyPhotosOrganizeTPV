@@ -87,6 +87,13 @@ ex.: `2023_05_10_14h30m00s-2023_05_10_14h30m00s-sem_gps-k3x9ab.jpg`
 Falhas de IA não são cacheadas, então uma execução futura com IA
 disponível pode gerar os títulos normalmente.
 
+**O título já gravado no nome nunca é perdido.** Se o arquivo já se chama
+`…-cidade-hash6-titulo.ext` (ou o formato antigo `…-cidade-titulo.ext`) e
+não há título novo, o programa **mantém o nome original** e registra
+`TÍTULO PRESERVADO` no log — renomear apagaria uma informação que só uma
+nova chamada de IA saberia recriar. Arquivos sem título continuam sendo
+renomeados normalmente (ganham o bloco `hash6`).
+
 ## Arquitetura e relacionamento entre os módulos
 
 ```
@@ -123,16 +130,20 @@ Dependência principal: `pereiras-common` (via git, ver
 
 ## Chaves de IA (segurança)
 
-As chaves de API ficam **fora do repositório**, na pasta do usuário:
+As chaves de API ficam **fora do repositório**, na pasta do usuário
+(`$HOME\.chaves_ia\` no Windows; `~/.chaves_ia/` no Linux/macOS):
 
 ```
-~/.chaves_ia/chave_google_gemini.key     (Gemini)
-~/.chaves_ia/chave_openai_chatgpt.key    (OpenAI)
+$HOME\.chaves_ia\chave_google_gemini.key     (Gemini)
+$HOME\.chaves_ia\chave_openai_chatgpt.key    (OpenAI)
 ```
 
-- Nunca versionar chaves no git (a pasta `~/.chaves_ia` está fora do projeto).
+- Nunca versionar chaves no git (a pasta `$HOME.chaves_ia` está fora do projeto).
 - Trocar o local pela linha de comando: `--chave-gemini C:\meu\caminho.key`
   e `--chave-openai C:\meu\caminho.key`.
+- Os caminhos (chaves, `-o` e `-d`) aceitam `~`, `$HOME` e `%USERPROFILE%`.
+  No PowerShell, entre **aspas simples** o `$HOME` não é expandido pelo
+  shell — o programa resolve mesmo assim.
 - O programa lê o conteúdo do arquivo; a chave nunca aparece em logs.
 
 ## Como executar
@@ -180,8 +191,8 @@ Cada execução grava um log em `logs/log_py_photos_organize_tpv_<data>.log`.
 | `-n, --rename-file` | renomeia para o formato alvo | ativado |
 | `-l, --timestamp-log` | nome do arquivo de log com timestamp | ativado |
 | `--sem-ia` | desativa as APIs de IA; arquivos sem o bloco de título | desativado |
-| `--chave-gemini` | arquivo com a chave da API Gemini | `~/.chaves_ia/chave_google_gemini.key` |
-| `--chave-openai` | arquivo com a chave da API OpenAI | `~/.chaves_ia/chave_openai_chatgpt.key` |
+| `--chave-gemini` | arquivo com a chave da API Gemini | `$HOME\.chaves_ia\chave_google_gemini.key` |
+| `--chave-openai` | arquivo com a chave da API OpenAI | `$HOME\.chaves_ia\chave_openai_chatgpt.key` |
 | `--dry-run` | apenas mostra o que seria feito, sem alterar nada | desativado |
 | `--mover` | move os arquivos em vez de copiá-los | desativado |
 | `--frames` | frames extraídos por vídeo para a IA | `5` |

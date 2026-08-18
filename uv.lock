@@ -517,7 +517,7 @@ wheels = [
 [[package]]
 name = "pereiras-common"
 version = "0.2.0"
-source = { git = "https://github.com/TalesPV/pereiras-scripts.git?rev=main#470eed9614ca7b43811999b9fb25a8120a2519a2" }
+source = { git = "https://github.com/TalesPV/pereiras-scripts.git?rev=main#7f48380dce1ddf7c150d008d167a8ff9f380c232" }
 dependencies = [
     { name = "defusedxml" },
     { name = "exifread" },

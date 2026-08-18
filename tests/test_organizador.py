@@ -326,3 +326,35 @@ def test_organizador_nao_le_o_arquivo_duas_vezes(origem_com_imagens, tmp_path, m
     organizar(_config(origem_com_imagens, destino))
     assert len(chamadas) == len(set(map(str, chamadas))), \
         f"mesmo arquivo hasheado mais de uma vez: {chamadas}"
+
+
+# ------------------- não perder o título já presente no nome do arquivo
+
+def test_sem_ia_mantem_o_titulo_que_ja_esta_no_nome(tmp_path):
+    """Reprocessar sem IA não pode apagar um título gerado numa execução anterior."""
+    origem = tmp_path / "origem"
+    origem.mkdir()
+    nome = "2019_07_04_08h09m10s-2019_07_04_08h09m10s-sem_gps-retrato_de_jovem.jpg"
+    Image.new("RGB", (48, 48), (7, 7, 7)).save(origem / nome)
+
+    destino = tmp_path / "destino"
+    organizar(_config(origem, destino))  # usar_ia=False
+
+    gerados = [p.name for p in destino.rglob("*.jpg")]
+    assert gerados == [nome], f"o título se perdeu: {gerados}"
+
+
+def test_sem_ia_ainda_renomeia_arquivo_sem_titulo(tmp_path):
+    """Sem título a perder, a renomeação normal continua valendo (ganha o hash6)."""
+    origem = tmp_path / "origem"
+    origem.mkdir()
+    nome = "2019_07_04_08h09m10s-2019_07_04_08h09m10s-sem_gps.jpg"
+    Image.new("RGB", (48, 48), (8, 8, 8)).save(origem / nome)
+
+    destino = tmp_path / "destino"
+    organizar(_config(origem, destino))
+
+    gerados = [p.name for p in destino.rglob("*.jpg")]
+    assert len(gerados) == 1
+    assert gerados[0] != nome, "deveria ter ganhado o bloco hash6"
+    assert gerados[0].startswith("2019_07_04_08h09m10s-2019_07_04_08h09m10s-sem_gps-")

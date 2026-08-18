@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Geração de títulos com IA (Gemini / GPT-4o mini) e cache por SHA-256.
+r"""Geração de títulos com IA (Gemini / GPT-4o mini) e cache por SHA-256.
 
 Como funciona:
 
@@ -15,9 +15,10 @@ Como funciona:
 Chaves de API (importante para segurança):
 
 - As chaves ficam em arquivos FORA do repositório, na pasta pessoal do
-  usuário: ``~/.chaves_ia/chave_google_gemini.key`` e
-  ``~/.chaves_ia/chave_openai_chatgpt.key`` (padrão do pacote
-  compartilhado). Nunca versionar chaves no git.
+  usuário: ``$HOME\.chaves_ia\chave_google_gemini.key`` e
+  ``$HOME\.chaves_ia\chave_openai_chatgpt.key`` (padrão do pacote
+  compartilhado; no Linux/macOS, ``~/.chaves_ia/``). Nunca versionar
+  chaves no git.
 - Os caminhos podem ser trocados pela linha de comando:
   ``--chave-gemini`` e ``--chave-openai``.
 
@@ -142,14 +143,15 @@ def verificar_openai(client):
 
 
 def criar_contexto_ia(chave_gemini_path=None, chave_openai_path=None):
-    """Cria o contexto de IA: clientes funcionais + chaves para análise.
+    r"""Cria o contexto de IA: clientes funcionais + chaves para análise.
 
     Leitura das chaves:
 
     - Parâmetros ``chave_gemini_path``/``chave_openai_path`` (vindos da
       linha de comando) têm prioridade.
-    - Sem parâmetro, usa o padrão ``~/.chaves_ia/chave_google_gemini.key`` e
-      ``~/.chaves_ia/chave_openai_chatgpt.key``.
+    - Sem parâmetro, usa o padrão ``$HOME\.chaves_ia\chave_google_gemini.key``
+      e ``$HOME\.chaves_ia\chave_openai_chatgpt.key``. Os caminhos aceitam
+      ``~``, ``$HOME`` e ``%USERPROFILE%``.
 
     Retorna um dict com as chaves "gemini" e/ou "openai" (clientes que
     passaram no pré-voo) e "chave_gemini"/"chave_openai" (texto das
