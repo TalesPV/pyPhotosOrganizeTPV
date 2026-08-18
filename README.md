@@ -180,7 +180,7 @@ Cada execução grava um log em `logs/log_py_photos_organize_tpv_<data>.log`.
 | `-n, --rename-file` | renomeia para o formato alvo | ativado |
 | `-l, --timestamp-log` | nome do arquivo de log com timestamp | ativado |
 | `--sem-ia` | desativa as APIs de IA; arquivos sem o bloco de título | desativado |
-| `--chave-gemini` | arquivo com a chave da API Gemini | `~/.chaves_ia/chave_gemini.key` |
+| `--chave-gemini` | arquivo com a chave da API Gemini | `~/.chaves_ia/chave_google_gemini.key` |
 | `--chave-openai` | arquivo com a chave da API OpenAI | `~/.chaves_ia/chave_openai_chatgpt.key` |
 | `--dry-run` | apenas mostra o que seria feito, sem alterar nada | desativado |
 | `--mover` | move os arquivos em vez de copiá-los | desativado |

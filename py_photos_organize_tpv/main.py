@@ -72,7 +72,7 @@ def criar_parser():
                          "arquivos gerados sem o bloco de título")
     ap.add_argument("--chave-gemini", type=str, default=None,
                     help="arquivo com a chave da API Gemini "
-                         "(padrão: ~/.chaves_ia/chave_gemini.key)")
+                         "(padrão: ~/.chaves_ia/chave_google_gemini.key)")
     ap.add_argument("--chave-openai", type=str, default=None,
                     help="arquivo com a chave da API OpenAI "
                          "(padrão: ~/.chaves_ia/chave_openai_chatgpt.key)")

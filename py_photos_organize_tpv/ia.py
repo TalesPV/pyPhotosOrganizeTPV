@@ -15,7 +15,7 @@ Como funciona:
 Chaves de API (importante para segurança):
 
 - As chaves ficam em arquivos FORA do repositório, na pasta pessoal do
-  usuário: ``~/.chaves_ia/chave_gemini.key`` e
+  usuário: ``~/.chaves_ia/chave_google_gemini.key`` e
   ``~/.chaves_ia/chave_openai_chatgpt.key`` (padrão do pacote
   compartilhado). Nunca versionar chaves no git.
 - Os caminhos podem ser trocados pela linha de comando:
@@ -148,7 +148,7 @@ def criar_contexto_ia(chave_gemini_path=None, chave_openai_path=None):
 
     - Parâmetros ``chave_gemini_path``/``chave_openai_path`` (vindos da
       linha de comando) têm prioridade.
-    - Sem parâmetro, usa o padrão ``~/.chaves_ia/chave_gemini.key`` e
+    - Sem parâmetro, usa o padrão ``~/.chaves_ia/chave_google_gemini.key`` e
       ``~/.chaves_ia/chave_openai_chatgpt.key``.
 
     Retorna um dict com as chaves "gemini" e/ou "openai" (clientes que
