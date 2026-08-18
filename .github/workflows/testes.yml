@@ -1,7 +1,8 @@
 # Roda a bateria de testes a cada push e pull request.
 # Windows é o ambiente real de uso destes projetos, então é nele que testamos.
-# A dependência pereiras-common vem do GitHub (tag fixa no pyproject.toml),
-# então o uv precisa de rede para resolvê-la — não há segredo envolvido.
+# A dependência pereiras-common vem de TalesPV/pereiras-scripts (repositório
+# público, tag fixa no pyproject.toml): o uv só precisa de rede para resolvê-la,
+# sem token nem segredo.
 name: testes
 
 on:
