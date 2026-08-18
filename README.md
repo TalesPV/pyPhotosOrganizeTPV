@@ -288,6 +288,17 @@ uv run python -m py_photos_organize_tpv -o D:\fotos -d E:\organizado --aplicar -
 uv run python -m py_photos_organize_tpv -o D:\fotos -d E:\organizado --aplicar --chave-gemini C:\chaves\gemini.key --chave-openai C:\chaves\openai.key
 ```
 
+## Dados gerados x código versionado
+
+Nada do que o programa produz entra no git — **cada ambiente gera o seu**:
+`cache_sha256_titulos.jsonl` (títulos já gerados por IA),
+`cache_gps_cidades.json` (geocodificação) e `logs/`.
+
+Ao clonar o repositório é esperado que nenhum deles exista: aparecem na
+primeira execução. Versioná-los daria conflito a cada rodada e colocaria
+caminhos de arquivos pessoais dentro do repositório. As regras do
+`.gitignore` são por padrão (`cache_*.jsonl`) e não por nome exato.
+
 ## Testes (TDD)
 
 ```bash

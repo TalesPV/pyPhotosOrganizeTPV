@@ -131,10 +131,27 @@ venv_tpv_photos_organize/
 .dmypy.json
 dmypy.json
 
-# Projeto: caches e logs gerados em execução
+# ===== DADOS GERADOS EM CADA AMBIENTE (nunca versionar) =====
+# Índices, tabelas de controle, caches e hashes de fotos são resultado de
+# execução, não código: cada máquina gera os seus ao rodar o programa.
+# Versioná-los criaria conflito a cada rodada e exporia caminhos de arquivos
+# pessoais no repositório.
+#
+# As regras são por PADRÃO, e não por nome exato, de propósito: um cache novo
+# passaria batido numa lista enumerada.
 logs/
-cache_sha256_titulos.jsonl
-cache_gps_cidades.json
+
+# Caches: títulos já gerados por IA, cidades por GPS, hashes de conteúdo
+cache_*.json
+cache_*.jsonl
+
+# Índices e tabelas de controle produzidos pelas execuções
+classificacao_*.csv
+classificacao_*.jsonl
+indice_*.jsonl
+
+# Exceção: amostras usadas pelos testes SÃO versionadas.
+!tests/dados/**
 
 # Pyre type checker
 .pyre/
