@@ -38,7 +38,12 @@ from pathlib import Path
 from google import genai
 from google.genai import types
 from openai import OpenAI
-from pereiras_common.ia import ErroAnaliseIA, analisar_foto
+from pereiras_common.ia import (
+    MODELO_GEMINI,
+    MODELO_OPENAI,
+    ErroAnaliseIA,
+    analisar_foto,
+)
 from pereiras_common.uteis import (
     DIR_CHAVES_PADRAO,
     carregar_cache_jsonl,
@@ -60,14 +65,15 @@ DIR_RAIZ = Path(__file__).resolve().parent.parent
 CACHE_TITULOS_PADRAO = DIR_RAIZ / "cache_sha256_titulos.jsonl"
 
 # Modelos usados para vídeos (as fotos usam os padrões do pereiras_common).
-MODELO_GEMINI = "gemini-3.6-flash"
-MODELO_OPENAI = "gpt-4o-mini"
+# Os nomes vêm do pacote compartilhado (fonte única): sem duplicação aqui;
+# `ia.MODELO_GEMINI` / `ia.MODELO_OPENAI` continuam disponíveis via import.
 
 # Tamanho máximo dos frames enviados à IA (economia de tokens).
 MAX_DIM = 1024
 QUALIDADE_JPEG = 85
 
-# Contador de chamadas por provedor (exibido nos logs/resumo).
+# Contador de chamadas por provedor, zerado a cada execução de organizar()
+# e exibido no log ao final (quantas chamadas cada API recebeu).
 CONTADOR_CHAMADAS = {"gemini": 0, "openai": 0}
 
 # Pedido enviado às APIs para vídeos: apenas o título.

@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 """Testes de integração do organizador (sem IA e sem rede)."""
 
+import logging
 from datetime import datetime
 from pathlib import Path
 
@@ -43,6 +44,9 @@ def _config(origem, destino, **kwargs):
         destino=destino,
         usar_ia=False,
         min_size_low_res=0,
+        # Sufixos automáticos de pasta ligados nestes testes: o default
+        # (desligado) é coberto por test_autosufixo_desativado_por_padrao.
+        gerar_sufixo=True,
         cache_titulos_path=str(destino.parent / "cache_titulos.jsonl"),
         cache_gps_path=str(destino.parent / "cache_gps.json"),
     )
@@ -386,7 +390,8 @@ def test_cli_age_com_aplicar(origem_com_imagens, tmp_path):
 def test_cli_aceita_dry_run_como_compatibilidade(origem_com_imagens, tmp_path):
     """--dry-run continua válido (agora é o padrão) para não quebrar scripts antigos."""
     from py_photos_organize_tpv.main import criar_parser
-    args = criar_parser().parse_args(["-o", str(origem_com_imagens), "--dry-run"])
+    args = criar_parser().parse_args(["-o", str(origem_com_imagens),
+                                      "-d", str(tmp_path / "destino"), "--dry-run"])
     assert args.aplicar is False
 
 
@@ -394,7 +399,7 @@ def test_ano_minimo_vem_do_pacote_compartilhado():
     """Um só valor para os três programas: sem 1977 num e 1980 noutro."""
     from pereiras_common.nomeacao import ANO_MINIMO_PADRAO
     from py_photos_organize_tpv.main import criar_parser
-    args = criar_parser().parse_args([])
+    args = criar_parser().parse_args(["-o", "x", "-d", "y"])
     assert args.min_year_discart_date == ANO_MINIMO_PADRAO
 
 
@@ -403,20 +408,20 @@ def test_ano_minimo_vem_do_pacote_compartilhado():
 def test_ia_desligada_por_padrao():
     """Chamar a IA custa dinheiro: tem de ser escolha explícita."""
     from py_photos_organize_tpv.main import criar_parser
-    args = criar_parser().parse_args([])
+    args = criar_parser().parse_args(["-o", "x", "-d", "y"])
     assert args.com_ia is False
 
 
 def test_com_ia_liga_a_ia():
     from py_photos_organize_tpv.main import criar_parser
-    args = criar_parser().parse_args(["--com-ia"])
+    args = criar_parser().parse_args(["-o", "x", "-d", "y", "--com-ia"])
     assert args.com_ia is True
 
 
 def test_sem_ia_continua_valido():
     """Quem já escrevia --sem-ia não pode ser quebrado; agora é redundante."""
     from py_photos_organize_tpv.main import criar_parser
-    args = criar_parser().parse_args(["--sem-ia"])
+    args = criar_parser().parse_args(["-o", "x", "-d", "y", "--sem-ia"])
     assert args.com_ia is False
 
 
@@ -424,7 +429,7 @@ def test_com_ia_e_sem_ia_juntos_sao_recusados():
     """A intenção fica ambígua: melhor falhar do que adivinhar."""
     from py_photos_organize_tpv.main import criar_parser
     with pytest.raises(SystemExit):
-        criar_parser().parse_args(["--com-ia", "--sem-ia"])
+        criar_parser().parse_args(["-o", "x", "-d", "y", "--com-ia", "--sem-ia"])
 
 
 # ------------- o relatório de classificação acompanha a mídia (não órfão)
@@ -478,3 +483,175 @@ def test_midia_sem_relatorio_continua_funcionando(tmp_path):
     estats = organizar(_config(origem, destino))
     assert estats.copiados == 1
     assert estats.erros == 0
+
+
+# ------------ sufixos automáticos de pasta (--com-autosufixo-pastas)
+
+def test_config_sem_ia_e_sem_autosufixo_por_padrao(tmp_path):
+    """Config direta não liga IA nem sufixos sozinha: opt-in também na API."""
+    cfg = Config(origem=tmp_path, destino=tmp_path / "destino")
+    assert cfg.usar_ia is False
+    assert cfg.gerar_sufixo is False
+
+
+def test_autosufixo_desativado_por_padrao(tmp_path):
+    """Sem --com-autosufixo-pastas as pastas são apenas a máscara de data."""
+    origem = tmp_path / "origem"
+    origem.mkdir()
+    (origem / "contrato_2020_01_02.docx").write_text("doc", encoding="utf-8")
+    destino = tmp_path / "destino"
+    cfg = Config(origem=origem, destino=destino, usar_ia=False,
+                 cache_titulos_path=str(tmp_path / "cache_t.jsonl"),
+                 cache_gps_path=str(tmp_path / "cache_g.json"))
+    organizar(cfg)
+    assert (destino / "2020_01" / "contrato_2020_01_02.docx").exists()
+    assert not (destino / "2020_01-office").exists()
+
+
+def test_autosufixo_office_vai_para_pasta_office(tmp_path):
+    """Office (.docx) volta a ter pasta específica, como nas versões antigas."""
+    origem = tmp_path / "origem"
+    origem.mkdir()
+    (origem / "relatorio_2020_05_10.docx").write_text("x", encoding="utf-8")
+    destino = tmp_path / "destino"
+    organizar(_config(origem, destino))
+    assert (destino / "2020_05-office" / "relatorio_2020_05_10.docx").exists()
+
+
+def test_autosufixo_metadados_quando_data_vem_do_exif(tmp_path):
+    """Data vinda de metadados embutidos ganha o sufixo -metadados (o que se perdeu)."""
+    origem = tmp_path / "origem"
+    origem.mkdir()
+    foto = origem / "paisagem.jpg"
+    img = Image.new("RGB", (64, 64), (0, 0, 255))
+    exif = Image.Exif()
+    exif[36867] = "2021:03:15 10:20:30"
+    img.save(foto, exif=exif)
+    destino = tmp_path / "destino"
+    organizar(_config(origem, destino))
+    assert list((destino / "2021_03-metadados").glob("*.jpg"))
+
+
+def test_autosufixo_metadados_precede_low_resolution(tmp_path):
+    """Com data de metadados, -metadados vence o low_resolution (ordem antiga)."""
+    origem = tmp_path / "origem"
+    origem.mkdir()
+    foto = origem / "mini.jpg"
+    img = Image.new("RGB", (8, 8), (1, 1, 1))
+    exif = Image.Exif()
+    exif[36867] = "2021:03:15 10:20:30"
+    img.save(foto, exif=exif)
+    destino = tmp_path / "destino"
+    organizar(_config(origem, destino, min_size_low_res=10 ** 9))
+    assert (destino / "2021_03-metadados").exists()
+    assert not (destino / "2021_03-low_resolution").exists()
+
+
+def test_autosufixo_low_resolution_quando_sem_metadados(tmp_path):
+    """Sem data de metadados, o tamanho pequeno vira low_resolution."""
+    origem = tmp_path / "origem"
+    origem.mkdir()
+    Image.new("RGB", (8, 8), (2, 2, 2)).save(origem / "pequena.jpg")
+    destino = tmp_path / "destino"
+    organizar(_config(origem, destino, min_size_low_res=10 ** 9))
+    assert len(list(destino.glob("*-low_resolution"))) == 1
+
+
+def test_autosufixo_nome_explica_data_sem_sufixo_metadados(tmp_path):
+    """Data mínima vinda do nome não ganha -metadados, mesmo com EXIF presente."""
+    origem = tmp_path / "origem"
+    origem.mkdir()
+    foto = origem / "viagem_2019_07_04_08h09m10s.jpg"
+    img = Image.new("RGB", (64, 64), (3, 3, 3))
+    exif = Image.Exif()
+    exif[36867] = "2021:03:15 10:20:30"
+    img.save(foto, exif=exif)
+    destino = tmp_path / "destino"
+    organizar(_config(origem, destino))
+    assert (destino / "2019_07").exists()
+    assert not (destino / "2019_07-metadados").exists()
+
+
+def test_data_veio_de_metadados_heuristicas(tmp_path):
+    from py_photos_organize_tpv.organizador import _data_veio_de_metadados
+    # Sem data não há fonte: False.
+    assert _data_veio_de_metadados(tmp_path / "x.jpg", None, 1980) is False
+    # Data explicada pelo nome do arquivo: não é metadados.
+    assert _data_veio_de_metadados(tmp_path / "foto_2019_07_04.jpg",
+                                   datetime(2019, 7, 4), 1980) is False
+    # Data anterior à do nome: só os metadados explicam.
+    assert _data_veio_de_metadados(tmp_path / "foto_2019_07_04.jpg",
+                                   datetime(2018, 1, 1), 1980) is True
+
+
+# -------------------------- mover com sobrescrever (overwrite "o")
+
+def test_mover_sobrescrever_substitui_destino_existente(tmp_path):
+    """--mover -w o substitui o destino (antes falhava no Windows)."""
+    from pereiras_common.uteis import hash_curto_6
+    origem = tmp_path / "origem"
+    origem.mkdir()
+    foto = origem / "foto.jpg"
+    img = Image.new("RGB", (64, 64), (9, 9, 9))
+    exif = Image.Exif()
+    exif[36867] = "2021:03:15 10:20:30"
+    img.save(foto, exif=exif)
+    nome_alvo = f"2021_03_15_10h20m30s-2021_03_15_10h20m30s-sem_gps-{hash_curto_6(foto)}.jpg"
+    destino = tmp_path / "destino"
+    pasta = destino / "2021_03"
+    pasta.mkdir(parents=True)
+    (pasta / nome_alvo).write_bytes(b"conteudo antigo")
+
+    estats = organizar(_config(origem, destino, mover=True, overwrite="o",
+                               gerar_sufixo=False))
+    assert estats.movidos == 1
+    assert estats.erros == 0
+    assert not foto.exists()
+    assert (pasta / nome_alvo).read_bytes() != b"conteudo antigo"
+
+
+# ------------- dry-run simula também a deduplicação (_2, _3) da execução
+
+def test_dry_run_simula_deduplicacao_de_alvos_planejados(tmp_path, caplog):
+    """Duas mídias idênticas: no dry-run a segunda já aparece como _2."""
+    origem = tmp_path / "origem"
+    origem.mkdir()
+    for nome in ("a.jpg", "b.jpg"):
+        img = Image.new("RGB", (64, 64), (7, 8, 9))
+        exif = Image.Exif()
+        exif[36867] = "2021:03:15 10:20:30"
+        img.save(origem / nome, exif=exif)
+    destino = tmp_path / "destino"
+    with caplog.at_level(logging.INFO):
+        estats = organizar(_config(origem, destino, dry_run=True, gerar_sufixo=False))
+    assert estats.copiados == 2
+    assert any("_2.jpg" in r.message for r in caplog.records)
+
+
+# ----------------------------- CLI do autosufixo de pastas
+
+def test_cli_autosufixo_pastas_desativado_por_padrao():
+    from py_photos_organize_tpv.main import criar_parser
+    args = criar_parser().parse_args(["-o", "x", "-d", "y"])
+    assert args.com_autosufixo_pastas is False
+    assert args.generate_folder_sufix is False
+
+
+def test_cli_com_autosufixo_pastas_ativa():
+    from py_photos_organize_tpv.main import criar_parser
+    args = criar_parser().parse_args(["-o", "x", "-d", "y", "--com-autosufixo-pastas"])
+    assert args.com_autosufixo_pastas is True
+
+
+def test_cli_generate_folder_sufix_legado_continua_valido():
+    """-g continua aceito (legado) e equivale a --com-autosufixo-pastas."""
+    from py_photos_organize_tpv.main import criar_parser
+    args = criar_parser().parse_args(["-o", "x", "-d", "y", "-g"])
+    assert args.generate_folder_sufix is True
+
+
+def test_cli_origem_e_destino_obrigatorios():
+    """Sem -o e -d o programa não arranca: os padrões antigos eram de uma máquina só."""
+    from py_photos_organize_tpv.main import criar_parser
+    with pytest.raises(SystemExit):
+        criar_parser().parse_args([])

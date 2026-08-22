@@ -1,6 +1,6 @@
 [project]
 name = "py-photos-organize-tpv"
-version = "1.2.0"
+version = "1.3.0"
 description = "Script to organize photos by date of file (create), EXIF, and others arguments"
 readme = "README.md"
 requires-python = ">=3.14"

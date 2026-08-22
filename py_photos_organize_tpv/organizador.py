@@ -16,11 +16,17 @@ Regras de nomeação (detalhadas em pereiras_common.nomeacao):
   informação que só uma nova chamada de IA saberia recriar.
 - O relatório de classificação (.gemini_36_flash.md) acompanha a mídia:
   separá-los deixaria órfã uma análise que custou dinheiro de API.
+- Sufixos automáticos de pasta são OPT-IN (--com-autosufixo-pastas; o
+  -g/--generate-folder-sufix antigo continua aceito). Quando ativos, a
+  pasta de data ganha o sufixo na ordem: extensão (videos/audios/office/
+  outros_tipos), nome (screen_capture/social_media/instant_messages),
+  fonte da data (metadados) e tamanho (low_resolution) — comportamento
+  das versões antigas, com o -metadados restaurado.
 
 Fluxo de cada arquivo (processar_arquivo):
 
 1. Coleta datas e GPS (pereiras_common.metadados.obter_datas).
-2. Classifica um sufixo de pasta (pereiras_common.metadados.classificar_sufixo).
+2. Classifica um sufixo de pasta (calcular_sufixo_pasta).
 3. Gera o título por IA (se habilitada) e a cidade pelo GPS.
 4. Calcula o hash curto do conteúdo (pereiras_common.uteis.hash_curto_6).
 5. Monta o nome alvo (pereiras_common.nomeacao.montar_nome_midia) e
@@ -39,6 +45,7 @@ from pathlib import Path
 
 from pereiras_common import geolocalizacao, metadados
 from pereiras_common.nomeacao import (
+    extrair_data_nome,
     montar_nome_midia,
     montar_pasta_destino,
     preservar_nome_original,
@@ -53,6 +60,10 @@ DIR_RAIZ = Path(__file__).resolve().parent.parent
 # Tipos de arquivo que são RENOMEADOS (os demais mantêm o nome original).
 TIPOS_MIDIA = {"imagem", "video", "audio"}
 
+# Sufixo de pasta das versões antigas, quando a data vem de metadados
+# embutidos (EXIF/XMP/ffmpeg/mutagen). Restaurado via --com-autosufixo-pastas.
+SUFIXO_METADADOS = "metadados"
+
 # Relatório de classificação gravado pelo verificar_fotos_videos ao lado de
 # cada mídia. Ele NÃO é uma mídia (não entra na varredura nem é renomeado),
 # mas precisa acompanhar o arquivo: separá-lo da foto joga fora uma análise
@@ -62,7 +73,12 @@ EXT_SIDECAR = ".gemini_36_flash.md"
 
 @dataclass
 class Config:
-    """Parâmetros de uma execução do organizador (preenchidos pelo CLI)."""
+    """Parâmetros de uma execução do organizador (preenchidos pelo CLI).
+
+    ``usar_ia`` e ``gerar_sufixo`` são OPT-IN: construções diretas da
+    Config (uso como biblioteca) não ligam nenhum dos dois sozinhas,
+    preservando o padrão de segurança da linha de comando.
+    """
     origem: Path
     destino: Path
     folders_mask: str = "%Y_%m"
@@ -70,9 +86,9 @@ class Config:
     batch: int = 0
     ano_minimo: int = 1980
     min_size_low_res: int = 100000
-    gerar_sufixo: bool = True
+    gerar_sufixo: bool = False
     renomear: bool = True
-    usar_ia: bool = True
+    usar_ia: bool = False
     dry_run: bool = False
     mover: bool = False
     frames: int = 5
@@ -117,10 +133,68 @@ def classificar_tipo_arquivo(caminho: Path) -> str:
     return tipo if tipo in TIPOS_MIDIA else "outro"
 
 
-def proximo_livre(alvo: Path) -> Path:
-    """Devolve um nome livre acrescentando _2, _3, ... quando o alvo já existe."""
+def _data_veio_de_metadados(caminho: Path, d_min, ano_minimo: int) -> bool:
+    """Indica se a data mínima veio de metadados embutidos (sufixo -metadados).
+
+    Heurística barata (regex no nome + stat no sistema de arquivos), sem
+    reler o arquivo: a data é de metadados quando NÃO é explicada nem pelo
+    nome nem pela data do sistema de arquivos — exatamente as outras duas
+    fontes que ``obter_datas`` consulta.
+
+    Regras:
+
+    - sem data -> False;
+    - data igual à do nome -> False (o nome explica; empate preserva o
+      comportamento idempotente: um arquivo já organizado, que tem a data
+      no nome, não muda de pasta entre execuções);
+    - data anterior à do nome -> True (só os metadados explicam);
+    - sem data no nome, a data do sistema de arquivos explica? -> False;
+      senão -> True.
+    """
+    if d_min is None:
+        return False
+    dt_nome = extrair_data_nome(caminho.stem, ano_minimo)
+    if dt_nome is not None:
+        return d_min < dt_nome
+    dt_fs = metadados.data_filesystem(caminho, ano_minimo)
+    if dt_fs is not None and d_min == dt_fs:
+        return False
+    return True
+
+
+def calcular_sufixo_pasta(caminho: Path, d_min, cfg: Config, tamanho: int | None) -> str | None:
+    """Sufixo de pasta completo do autosufixo (comportamento das versões antigas).
+
+    Ordem de precedência (a primeira regra que casar vence):
+
+    1. Extensão: ``videos``, ``audios``, ``office``, ``outros_tipos``.
+    2. Nome: ``screen_capture``, ``social_media``, ``instant_messages``.
+    3. Fonte da data: ``metadados`` (restaurado do histórico do projeto).
+    4. Tamanho: ``low_resolution``.
+
+    Devolve None quando nenhuma regra casa (pasta só com a data).
+    """
+    # Sem low_resolution aqui: ele é a ÚLTIMA regra, depois de -metadados
+    # (na versão original, low_resolution só entrava se nada mais casasse).
+    sufixo = metadados.classificar_sufixo(caminho, tamanho=tamanho, min_size_low_res=0)
+    if sufixo:
+        return sufixo
+    if _data_veio_de_metadados(caminho, d_min, cfg.ano_minimo):
+        return SUFIXO_METADADOS
+    if tamanho is not None and cfg.min_size_low_res > 0 and tamanho < cfg.min_size_low_res:
+        return "low_resolution"
+    return None
+
+
+def proximo_livre(alvo: Path, ocupados: set[Path] | None = None) -> Path:
+    """Devolve um nome livre acrescentando _2, _3, ... quando o alvo já existe.
+
+    ``ocupados`` (opcional) é o conjunto de alvos já planejados na execução
+    atual: no dry-run nada é gravado no disco, então é ele que faz a
+    simulação deduplicar como a execução aplicada faria.
+    """
     contador = 2
-    while alvo.exists():
+    while alvo.exists() or (ocupados is not None and alvo in ocupados):
         alvo = alvo.with_name(f"{alvo.stem}_{contador}{alvo.suffix}")
         contador += 1
     return alvo
@@ -178,8 +252,7 @@ def processar_arquivo(caminho: Path, cfg: Config, contexto, cache_titulos, cache
     tipo = classificar_tipo_arquivo(caminho)
 
     d_min, d_max, gps = metadados.obter_datas(caminho, cfg.ano_minimo)
-    sufixo = (metadados.classificar_sufixo(caminho, tamanho=tamanho,
-                                           min_size_low_res=cfg.min_size_low_res)
+    sufixo = (calcular_sufixo_pasta(caminho, d_min, cfg, tamanho)
               if cfg.gerar_sufixo else None)
     pasta = montar_pasta_destino(cfg.destino, d_min, cfg.folders_mask, sufixo)
 
@@ -202,18 +275,23 @@ def processar_arquivo(caminho: Path, cfg: Config, contexto, cache_titulos, cache
         logging.info("INALTERADO (já está no destino e no formato alvo): %s", caminho)
         return
 
-    if alvo.exists():
+    # Colisão de nome: vale para o que já existe no disco E para os alvos
+    # já planejados nesta execução (no dry-run nada é gravado, então o
+    # conjunto dos planejados é o que torna a simulação fiel à aplicação).
+    alvos_planejados = contexto["alvos_planejados"]
+    if alvo.exists() or alvo in alvos_planejados:
         if cfg.overwrite == "i":
             estats.ignorados += 1
             logging.info("IGNORADO (já existe no destino): %s -> %s", caminho, alvo)
             return
         if cfg.overwrite != "o":
-            alvo = proximo_livre(alvo)
+            alvo = proximo_livre(alvo, alvos_planejados)
 
     acao = "MOVER" if cfg.mover else "COPIAR"
     if cfg.dry_run:
         logging.info("%s (dry-run): %s -> %s", acao, caminho, alvo)
         levar_sidecar_junto(caminho, alvo, cfg)
+        alvos_planejados.add(alvo)
         # Conta no mesmo balde da ação real, senão o resumo do dry-run de
         # --mover diria "copiados" e não bateria com a execução aplicada.
         if cfg.mover:
@@ -224,6 +302,10 @@ def processar_arquivo(caminho: Path, cfg: Config, contexto, cache_titulos, cache
     try:
         pasta.mkdir(parents=True, exist_ok=True)
         if cfg.mover:
+            # shutil.move no Windows não sobrescreve arquivo existente
+            # (os.rename falha): -w o remove o alvo antes de mover.
+            if cfg.overwrite == "o" and alvo.exists():
+                alvo.unlink()
             shutil.move(str(caminho), str(alvo))
             estats.movidos += 1
         else:
@@ -281,6 +363,11 @@ def levar_sidecar_junto(origem: Path, alvo: Path, cfg: Config) -> bool:
         return True
     try:
         if cfg.mover:
+            # Mesmo caso da mídia: mover não sobrescreve destino existente
+            # no Windows. O relatório tem de acompanhar a mídia, então o
+            # antigo no destino sai antes.
+            if destino.exists():
+                destino.unlink()
             shutil.move(str(sidecar), str(destino))
         else:
             shutil.copy2(sidecar, destino)
@@ -311,9 +398,15 @@ def organizar(cfg: Config) -> Estatisticas:
         "ia": None,
         "cache_titulos_path": cfg.cache_titulos_path or str(DIR_RAIZ / "cache_sha256_titulos.jsonl"),
         "cache_gps_path": cache_gps_path,
+        # Alvos planejados NESTA execução: no dry-run nada é gravado no
+        # disco, então é este conjunto que simula a deduplicação (_2, _3).
+        "alvos_planejados": set(),
     }
     if cfg.usar_ia:
         contexto["ia"] = ia.criar_contexto_ia(cfg.chave_gemini, cfg.chave_openai)
+    # Contagem por execução (o módulo é importado uma vez; sem zerar, uma
+    # segunda chamada de organizar() no mesmo processo somaria errado).
+    ia.CONTADOR_CHAMADAS.update({"gemini": 0, "openai": 0})
     cache_titulos = ia.carregar_cache_titulos(contexto["cache_titulos_path"])
     cache_gps = geolocalizacao.carregar_cache_gps(contexto["cache_gps_path"])
 
@@ -321,4 +414,7 @@ def organizar(cfg: Config) -> Estatisticas:
         logging.info("")
         logging.info("[%d/%d] Processando: %s", n, estats.total, caminho)
         processar_arquivo(caminho, cfg, contexto, cache_titulos, cache_gps, estats)
+    if cfg.usar_ia:
+        logging.info("Chamadas de IA nesta execução: Gemini %d | GPT-4o mini %d",
+                     ia.CONTADOR_CHAMADAS["gemini"], ia.CONTADOR_CHAMADAS["openai"])
     return estats

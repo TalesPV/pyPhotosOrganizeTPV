@@ -14,6 +14,7 @@ Exemplos:
   uv run python -m py_photos_organize_tpv -o D:\\fotos -d E:\\organizado --dry-run
   uv run python -m py_photos_organize_tpv -o D:\\fotos -d E:\\organizado --sem-ia
   uv run python -m py_photos_organize_tpv -o D:\\fotos -d E:\\organizado --mover -q 100
+  uv run python -m py_photos_organize_tpv -o D:\\fotos -d E:\\organizado --com-autosufixo-pastas
 
 IA é opt-in: sem --com-ia nenhuma API é chamada. Nesse caso (ou se a IA
 estiver indisponível por falta de chave ou de rede), os arquivos são
@@ -51,10 +52,10 @@ def criar_parser():
                     "cidade-hash6-titulo.ext.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    ap.add_argument("-o", "--files-orign", type=str, default="d:\\",
-                    help="pasta de origem a percorrer (padrão: d:\\)")
-    ap.add_argument("-d", "--files-destination", type=str, default="E:\\TMP-fotos",
-                    help="pasta de destino (padrão: E:\\TMP-fotos)")
+    ap.add_argument("-o", "--files-orign", type=str, required=True,
+                    help="pasta de origem a percorrer (recursivo) — obrigatório")
+    ap.add_argument("-d", "--files-destination", type=str, required=True,
+                    help="pasta de destino — obrigatório")
     ap.add_argument("-f", "--folders", type=str, default="%Y_%m",
                     help="máscara strftime das subpastas de data (padrão: %%Y_%%m)")
     ap.add_argument("-w", "--overwrite", choices=["d", "i", "o"], default="d",
@@ -67,8 +68,17 @@ def criar_parser():
                          f"(padrão: {ANO_MINIMO_PADRAO}, o mesmo dos outros programas)")
     ap.add_argument("-s", "--min-size-escape-low-resolution", type=int, default=100000,
                     help="arquivos menores que este tamanho (bytes) ganham sufixo low_resolution")
+    # Sufixos automáticos de pasta são opt-in: sem a flag, as pastas são
+    # apenas a máscara de data. -g continua aceito (legado) para não quebrar
+    # scripts antigos; equivale a --com-autosufixo-pastas.
+    ap.add_argument("--com-autosufixo-pastas", action="store_true",
+                    help="ativa os sufixos automáticos de pasta: office, videos, audios, "
+                         "outros_tipos, screen_capture, social_media, instant_messages, "
+                         "metadados (fonte da data) e low_resolution (tamanho)")
     ap.add_argument("-g", "--generate-folder-sufix", action=argparse.BooleanOptionalAction,
-                    default=True, help="gera sufixo de pasta por origem (videos, social_media, ...)")
+                    default=False,
+                    help="(legado) o mesmo que --com-autosufixo-pastas; "
+                         "aceita --no-generate-folder-sufix")
     ap.add_argument("-n", "--rename-file", action=argparse.BooleanOptionalAction,
                     default=True, help="renomeia o arquivo para o formato alvo")
     ap.add_argument("-l", "--timestamp-log", action=argparse.BooleanOptionalAction,
@@ -148,7 +158,9 @@ def main(argv=None):
         batch=args.batch_quantity_files,
         ano_minimo=args.min_year_discart_date,
         min_size_low_res=args.min_size_escape_low_resolution,
-        gerar_sufixo=args.generate_folder_sufix,
+        # Qualquer uma das formas liga os sufixos automáticos de pasta:
+        # a canônica (--com-autosufixo-pastas) ou a legada (-g).
+        gerar_sufixo=args.generate_folder_sufix or args.com_autosufixo_pastas,
         renomear=args.rename_file,
         usar_ia=args.com_ia,
         dry_run=not args.aplicar,

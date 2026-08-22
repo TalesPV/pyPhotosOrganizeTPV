@@ -20,6 +20,10 @@ YYYY_MM_DD_HHhMMmSSs-YYYY_MM_DD_HHhMMmSSs-cidade-hash6-titulo.ext
   cruzado). Resultados são cacheados por SHA-256.
 - Apenas **mídias** (foto/vídeo/áudio) são renomeadas; os demais arquivos
   (office, PDFs, textos...) mantêm o nome original.
+- **Sufixos automáticos de pasta** (`-office`, `-videos`, `-metadados`,
+  `-low_resolution`, ...) são **opt-in** via `--com-autosufixo-pastas`
+  (o `-g` antigo continua aceito como legado). Sem a flag, as pastas são
+  apenas a máscara de data (`%Y_%m`).
 - O relatório de classificação (`.gemini_36_flash.md`) gerado pelo
   `verificar_fotos_videos` **acompanha a mídia** ao copiar ou mover: separá-los
   deixaria órfã uma análise que custou dinheiro de API.
@@ -50,15 +54,41 @@ Fluxo de cada arquivo encontrado na pasta de origem:
 2. **Datas e GPS**: `pereiras_common.metadados.obter_datas` — metadados
    embutidos (EXIF/XMP/PNG, ffmpeg/mutagen), depois nome do arquivo,
    depois sistema de arquivos; exiftool é fallback opcional.
-3. **Sufixo de pasta**: `pereiras_common.metadados.classificar_sufixo` —
-   `videos`, `audios`, `office`, `outros_tipos`, `screen_capture`,
-   `social_media`, `instant_messages`, `low_resolution`.
+3. **Sufixo de pasta** (opt-in, ver abaixo): extensão/tipo
+   (`pereiras_common.metadados.classificar_sufixo`), fonte da data
+   (`-metadados`) e tamanho (`-low_resolution`), nesta ordem de
+   precedência.
 4. **Nome alvo**: apenas para MÍDIAS — título por IA (se habilitada),
    cidade por GPS e hash curto do conteúdo, montados por
    `pereiras_common.nomeacao.montar_nome_midia`. Arquivos que não são
    mídia mantêm o nome original.
 5. **Ação**: copiar (padrão) ou mover; se o alvo já existir:
    duplicar (`_2`, `_3`, ...), ignorar ou sobrescrever.
+
+### Sufixos automáticos de pasta (`--com-autosufixo-pastas`)
+
+Comportamento das versões antigas do projeto, restaurado como **opt-in**:
+sem `--com-autosufixo-pastas` (ou o legado `-g`), as pastas são apenas a
+máscara de data (ex.: `2024_03`). Com a flag, a primeira regra que casar
+decide o sufixo (ex.: `2024_03-videos`, `2020_05-office`,
+`2021_03-metadados`):
+
+| Ordem | Regra | Sufixo | Exemplo |
+| --- | --- | --- | --- |
+| 1 | Extensão | `videos`, `audios`, `office`, `outros_tipos` | `relatorio.docx` → `2020_05-office` |
+| 2 | Palavras no nome | `screen_capture`, `social_media`, `instant_messages` | `IMG-...-WA0000.jpg` → `2019_03-instant_messages` |
+| 3 | Fonte da data | `metadados` | EXIF presente e o nome não tem data → `2021_03-metadados` |
+| 4 | Tamanho | `low_resolution` | abaixo de `-s` (bytes) → `2024_03-low_resolution` |
+
+Regras da fonte da data (etapa 3):
+
+- A data mínima é considerada "de metadados" quando **não** é explicada
+  nem pelo nome do arquivo nem pela data do sistema de arquivos.
+- Data igual à do nome conta como "do nome": um arquivo já organizado
+  (que carrega a data no nome) **não muda de pasta** entre execuções —
+  o re-processamento é idempotente.
+- Arquivos de office/outros nunca ganham `-metadados` (a data deles vem
+  do nome ou do sistema de arquivos).
 
 ### Fontes de metadados por tipo de arquivo
 
@@ -169,7 +199,8 @@ $HOME\.chaves_ia\chave_openai_chatgpt.key    (OpenAI)
 uv run python -m py_photos_organize_tpv [opções]
 ```
 
-O comando mínimo exige a pasta de origem (`-o`) e a de destino (`-d`):
+O comando mínimo exige a pasta de origem (`-o`) e a de destino (`-d`) —
+os dois são **obrigatórios**:
 
 ```bash
 uv run python -m py_photos_organize_tpv -o D:\fotos -d E:\organizado
@@ -205,14 +236,15 @@ Cada execução grava um log em `logs/log_py_photos_organize_tpv_<data>.log`.
 
 | Opção | Descrição | Padrão |
 | --- | --- | --- |
-| `-o, --files-orign` | pasta de origem a percorrer (recursivo) | `d:\` |
-| `-d, --files-destination` | pasta de destino | `E:\TMP-fotos` |
+| `-o, --files-orign` | pasta de origem a percorrer (recursivo) | obrigatório |
+| `-d, --files-destination` | pasta de destino | obrigatório |
 | `-f, --folders` | máscara strftime das subpastas de data | `%Y_%m` |
 | `-w, --overwrite` | `d` duplicar, `i` ignorar, `o` sobrescrever | `d` |
 | `-q, --batch-quantity-files` | processa no máximo N arquivos (`0` = todos) | `0` |
 | `-y, --min-year-discart-date` | ignora datas anteriores a este ano (mesmo valor nos três programas) | `1980` |
 | `-s, --min-size-escape-low-resolution` | sufixo `low_resolution` abaixo deste tamanho (bytes) | `100000` |
-| `-g, --generate-folder-sufix` | sufixo de pasta por origem (`videos`, `social_media`, ...) | ativado |
+| `--com-autosufixo-pastas` | sufixos automáticos de pasta (`office`, `videos`, ..., `metadados`, `low_resolution`) | desativado |
+| `-g, --generate-folder-sufix` | legado: o mesmo que `--com-autosufixo-pastas` (aceita `--no-generate-folder-sufix`) | desativado |
 | `-n, --rename-file` | renomeia para o formato alvo | ativado |
 | `-l, --timestamp-log` | nome do arquivo de log com timestamp | ativado |
 | `--com-ia` | **gera títulos com IA** (consome tokens e créditos) | desativado |
@@ -248,11 +280,21 @@ uv run python -m py_photos_organize_tpv -o D:\fotos -d E:\organizado -q 10
 uv run python -m py_photos_organize_tpv -o D:\fotos -d E:\organizado --aplicar --mover
 ```
 
-### Agrupar por ano/mês/dia e sem sufixo de origem
+### Agrupar por ano/mês/dia (sem sufixo — já é o padrão)
 
 ```bash
-uv run python -m py_photos_organize_tpv -o D:\fotos -d E:\organizado --aplicar -f "%Y_%m_%d" --no-generate-folder-sufix
+uv run python -m py_photos_organize_tpv -o D:\fotos -d E:\organizado --aplicar -f "%Y_%m_%d"
 ```
+
+### Sufixos automáticos de pasta (opt-in)
+
+```bash
+# office -> 2024_03-office, vídeos -> 2024_03-videos, EXIF -> 2024_03-metadados, ...
+uv run python -m py_photos_organize_tpv -o D:\fotos -d E:\organizado --aplicar --com-autosufixo-pastas
+```
+
+O `-g` antigo continua aceito e vale o mesmo; `--no-generate-folder-sufix`
+desliga explicitamente (o padrão já é desligado).
 
 ### Controlar o que acontece com arquivos que já existem no destino
 
@@ -318,10 +360,12 @@ caminhos de arquivos pessoais dentro do repositório. As regras do
 uv run pytest
 ```
 
-- `tests/test_organizador.py`: 25 testes de integração (varredura, sufixos,
-  destino, dedup de nomes, dry-run — inclusive o resumo de `--mover` —,
-  aviso de destino dentro da origem, leitura única do SHA-256 por arquivo,
-  títulos/cache de IA com dublês e regra de "outros arquivos não renomeados").
+- `tests/test_organizador.py`: 52 testes de integração (varredura, sufixos
+  de pasta automáticos — office, metadados, low_resolution e precedência —,
+  destino, dedup de nomes inclusive no dry-run, resumo de `--mover`,
+  mover com sobrescrever, aviso de destino dentro da origem, leitura única
+  do SHA-256 por arquivo, títulos/cache de IA com dublês, sidecar e regra
+  de "outros arquivos não renomeados").
 - Os testes de nomeação, metadados, geolocalização, hash e IA vivem no
   pacote `pereiras-common` (fonte única das funções).
 
@@ -341,4 +385,8 @@ uv run pytest
       `ia.py` agora delega a `pereiras_common.uteis`.
 - [ ] Opção de usar o nível de legalidade da análise para alertar arquivos
       de nível 3+ durante a organização.
-- [ ] CI (GitHub Actions) rodando os testes a cada PR.
+- [x] CI (GitHub Actions) rodando os testes a cada PR. **Feito** — ver
+      `.github/workflows/testes.yml` (windows-latest, `uv sync --locked`).
+- [ ] Mover a detecção da fonte da data (sufixo `-metadados`) para o pacote
+      compartilhado: hoje `_data_veio_de_metadados` é uma heurística local;
+      o ideal é `obter_datas` devolver a fonte junto com as datas.
